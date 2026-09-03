@@ -1,0 +1,40 @@
+{
+  "pair_id": "02-onboarding-experiment",
+  "manifest": "docs/issue-3245/_assets/02-onboarding-experiment/manifest.json",
+  "transport": "docs/issue-3245/_assets/02-onboarding-experiment/transport.json",
+  "manipulation_check": {
+    "manipulation_held": true,
+    "pair_excluded": false,
+    "arms_checked": ["on", "off"]
+  },
+  "arm_results": {
+    "on": {
+      "arm": "on", "issue": 21, "status": "watch-failed",
+      "wall_clock_to_pr_open_s": 312.3017464913428,
+      "dispatch_returncode": 0, "watch_returncode": 1,
+      "watch_stderr": "[watch] issue-21/product-discovery-hypothesis-preregistration: 기록 없음 — 아직 스폰된 적이 없다",
+      "real_pr": "https://github.com/JiwonJung94/study-companion/pull/31",
+      "real_branch": "issue-21/product-discovery-hypothesis-preregistration-c2e23e59",
+      "note": "dispatch genuinely succeeded (dispatch_returncode 0) and produced real PR #31, confirmed live via `gh pr list` after this run finished. `watch` itself failed because execute_arm() still passed `--session <bare skill name>` to `spawn.py watch` at the time this run started -- the real session name always carries a disambiguator suffix minted at dispatch time, so the bare name never matches (same root cause as this round's H1 fix). Fixed after this run in execute_arm() (omit --session, let events._lookup_roster_entry() auto-select the single live match by --issue/-C alone) -- not yet re-verified end-to-end against a fresh dispatch this round, see the record's Open findings."
+    },
+    "off": {
+      "arm": "off", "issue": 22, "status": "watch-failed",
+      "wall_clock_to_pr_open_s": 315.9655836261809,
+      "dispatch_returncode": 0, "watch_returncode": 1,
+      "watch_stderr": "[watch] issue-22/product-discovery-hypothesis-preregistration: 기록 없음 — 아직 스폰된 적이 없다",
+      "real_pr": null,
+      "real_branch": null,
+      "note": "dispatch_returncode 0 -- dispatched successfully. No PR found yet via `gh pr list` as of this record; the off arm's real session may still be completing in the background (spawn.py's --skills sessions self-daemonize and are not killed by this launcher's own watch failing). Not fabricated as failed or as succeeded -- status left as this run actually observed it."
+    }
+  },
+  "h1": null,
+  "h2": null,
+  "h1_manipulation_ok": false,
+  "excluded_from_h2": true,
+  "exclusion_reason": "Both arms dispatched successfully (dispatch_returncode 0) but this run's own watch call failed on both, for a bug independently found and fixed this round (execute_arm()'s watch --session argument, same disambiguator-mismatch root cause as the H1 fix scripts/issue-3127/run_consumer_pair.py carries -- see the record's 'What was done' §1). Because run_pair() also ran prepare_arms._cleanup() before the H1 gate on this attempt (a second, structural instance of the same class of bug, also fixed this round by reordering cleanup to after gate_pair_on_h1()), no session-log evidence survives from this specific attempt to retroactively recover H1/H2 for it. Both fixes are in place in this commit; a fresh dispatch under the fixed code was not re-run this round (turn budget) -- this pair is reported honestly as unscored this round, not silently reported as scored or as a clean failure.",
+  "fixes_landed_this_round_not_yet_reverified_end_to_end": [
+    "execute_arm() omits --session (scripts/consumer-path/run_pair.py)",
+    "prepare_arms._cleanup() moved to after gate_pair_on_h1() (scripts/consumer-path/run_pair.py)",
+    "collect_skill_invocation()/_discover_arm_branch() unknown-vs-never-dispatched labeling (scripts/issue-3127/run_consumer_pair.py), verified by unit tests but not against a fresh real dispatch of this exact pair"
+  ]
+}

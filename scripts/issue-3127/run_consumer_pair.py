@@ -507,7 +507,77 @@ def _find_latest_session_log(workspace: Path | None) -> Path | None:
     return candidates[0] if candidates else None
 
 
-def collect_skill_invocation(workspace: Path | None, skill_name: str) -> dict:
+def _discover_arm_branch(repo: str, issue: int, retries: int = 6,
+                          delay_s: float = 5.0,
+                          _sleep=time.sleep) -> dict:
+    """Find the real branch a `--skills` dispatch created for `issue`,
+    without guessing it (issue #3245 round 3, watch-race repair).
+
+    `spawn.py`'s `--skills` dispatch path names the session's branch/
+    workspace `<skill-slug>-<disambiguator>`, where `disambiguator` is
+    minted fresh at dispatch time by `roster.new_lease_disambiguator()`
+    (spawn.py:2547) -- unknowable to any caller before dispatch runs, and
+    NOT simply `plan.skill_name` the way `arm_workspace_dir()` used to
+    assume. Round 2's `01-study-groups` pair dispatched and completed
+    both arms fully (`dispatch_returncode: 0`, `watch_returncode: 0` on
+    both) but this file's own H1 check still reported "the arm never
+    reached a dispatched, log-producing state", because it searched for a
+    workspace name built from the wrong (guessed) slug -- a real result
+    reported as if it never happened, not a genuine absence.
+
+    Polls `gh pr list` for a PR whose branch starts with `issue-<n>/`
+    with a bounded wait (`retries` x `delay_s`) rather than a single
+    early poll, so a PR that is real but not yet indexed by the GitHub
+    API is "not yet observable", never silently reported as "never
+    happened". Returns `{"found": False, ...}` (never raises, never
+    fabricates a branch name) when no matching PR turns up within the
+    wait -- the caller's job is to label that "unknown", not
+    "never-dispatched": this function has no way to tell "the arm truly
+    never ran" apart from "the arm ran but `gh` can't see it yet/at all"
+    and must not pretend otherwise.
+    """
+    prefix = f"issue-{issue}/"
+    last_error = None
+    for attempt in range(retries):
+        try:
+            r = subprocess.run(
+                ["gh", "pr", "list", "-R", repo, "--state", "all",
+                 "--json", "number,headRefName,createdAt", "--limit", "50"],
+                capture_output=True, text=True, timeout=30)
+        except subprocess.TimeoutExpired:
+            last_error = f"gh pr list -R {repo!r} timed out after 30s"
+            if attempt < retries - 1:
+                _sleep(delay_s)
+            continue
+        if r.returncode == 0:
+            try:
+                prs = json.loads(r.stdout)
+            except json.JSONDecodeError as exc:
+                last_error = f"gh pr list output not valid JSON: {exc}"
+                prs = []
+            matches = [p for p in prs
+                       if p.get("headRefName", "").startswith(prefix)]
+            if matches:
+                matches.sort(key=lambda p: p.get("createdAt", ""),
+                             reverse=True)
+                return {"found": True, "branch": matches[0]["headRefName"],
+                        "pr_number": matches[0]["number"],
+                        "attempts": attempt + 1}
+        else:
+            last_error = f"gh pr list -R {repo!r} failed: {r.stderr.strip()}"
+        if attempt < retries - 1:
+            _sleep(delay_s)
+    return {"found": False, "branch": None, "pr_number": None,
+            "attempts": retries,
+            "reason": last_error or
+                      f"no PR with branch prefix {prefix!r} found on "
+                      f"{repo!r} after {retries} polls over "
+                      f"~{retries * delay_s:.0f}s"}
+
+
+def collect_skill_invocation(workspace: Path | None, skill_name: str,
+                              repo: str | None = None,
+                              issue: int | None = None) -> dict:
     """H1's manipulation-check evidence (re-operationalized 2026-09-02,
     issue #3127 consult, `runs/consult-logs/20260902T125610799701-
     948846.log`): whether the target skill was actually INVOKED via the
@@ -537,13 +607,54 @@ def collect_skill_invocation(workspace: Path | None, skill_name: str) -> dict:
     the arm; the init event's plugin list is populated from the same
     resolved-skill-sources spawn.py itself computes pre-session for the
     roster, see `_skill_roster_fields()` in skills.py).
+
+    `repo`/`issue` (issue #3245 round 3): when the guessed `workspace`
+    path (built from `plan.skill_name`, see `arm_workspace_dir()`) has no
+    session log next to it, this no longer concludes "never dispatched"
+    on the strength of that one guess -- `arm_workspace_dir()`'s naming
+    assumption is known-wrong for a `--skills` dispatch (see
+    `_discover_arm_branch()`'s docstring). Instead it discovers the real
+    branch via `_discover_arm_branch()` and retries against the
+    workspace that branch actually names. Only when that discovery ALSO
+    turns up nothing does this report absence -- and even then as
+    `status: "unknown"` with `measured: False`, never as a claim that the
+    arm never ran, unless `repo`/`issue` were not supplied at all (a
+    caller that cannot discover has nothing to distinguish "unobserved"
+    from "never happened" with, so it gets the same conservative
+    `measured: False` failure the H1 gate has always applied to missing
+    evidence -- but labeled `unknown`, not `never-dispatched`).
     """
     log_path = _find_latest_session_log(workspace)
+    discovery = None
+    if log_path is None and repo is not None and issue is not None:
+        discovery = _discover_arm_branch(repo, issue)
+        if discovery["found"] and workspace is not None:
+            real_slug = discovery["branch"][len(f"issue-{issue}/"):]
+            # Rebuild the workspace path from the branch spawn.py actually
+            # created rather than trust the pre-dispatch guess: same
+            # `<repo>-issue-<n>-<slug>` shape `arm_workspace_dir()` uses,
+            # with the DISCOVERED slug (skill + real disambiguator).
+            repo_prefix = workspace.name.rsplit(f"-issue-{issue}-", 1)[0]
+            real_workspace = workspace.parent / \
+                f"{repo_prefix}-issue-{issue}-{real_slug}"
+            log_path = _find_latest_session_log(real_workspace)
     if log_path is None:
+        status = "unknown" if (repo is not None and issue is not None) \
+            else "never-dispatched"
+        if status == "unknown":
+            reason = (
+                "no session log found for the workspace this harness "
+                f"guessed ({workspace}), and discovering the real branch "
+                f"for issue {issue} " +
+                (f"found none after {discovery['attempts']} polls "
+                 f"({discovery.get('reason')})" if discovery is not None
+                 else "was not attempted") +
+                " -- unobservable, not evidence the arm never ran")
+        else:
+            reason = (f"no {workspace}.session.*.log found -- the arm "
+                       "never reached a dispatched, log-producing state")
         return {"session_log": None, "mounted": None, "invoked": False,
-                "measured": False,
-                "reason": f"no {workspace}.session.*.log found -- the arm "
-                          "never reached a dispatched, log-producing state"}
+                "measured": False, "status": status, "reason": reason}
     result = _msi.analyze(workspace.name, str(log_path))
     if result.get("status") != "measured":
         return {"session_log": str(log_path), "mounted": None,
@@ -562,7 +673,10 @@ def collect_skill_invocation(workspace: Path | None, skill_name: str) -> dict:
 
 def compute_h1_manipulation(workspace_on: Path | None,
                              workspace_off: Path | None,
-                             skill_name: str | None) -> dict:
+                             skill_name: str | None,
+                             repo: str | None = None,
+                             issue_on: int | None = None,
+                             issue_off: int | None = None) -> dict:
     """H1 enforcement, re-operationalized 2026-09-02 (issue #3127
     consult, `runs/consult-logs/20260902T125610799701-948846.log`,
     following PR #3172's construct-validity finding).
@@ -615,8 +729,10 @@ def compute_h1_manipulation(workspace_on: Path | None,
                 "reason": "no skill_name supplied -- cannot compute the "
                           "invocation-based H1 check"}
 
-    on_invocation = collect_skill_invocation(workspace_on, skill_name)
-    off_invocation = collect_skill_invocation(workspace_off, skill_name)
+    on_invocation = collect_skill_invocation(workspace_on, skill_name,
+                                              repo=repo, issue=issue_on)
+    off_invocation = collect_skill_invocation(workspace_off, skill_name,
+                                               repo=repo, issue=issue_off)
     base = {"directive_bytes_parity": directive_bytes_parity,
             "on_invocation": on_invocation, "off_invocation": off_invocation}
 
@@ -645,7 +761,9 @@ def compute_h1_manipulation(workspace_on: Path | None,
 
 def gate_pair_on_h1(pair_id: str, workspace_on: Path | None,
                      workspace_off: Path | None, skill_name: str | None = None,
-                     compute_h2=None) -> dict:
+                     compute_h2=None, repo: str | None = None,
+                     issue_on: int | None = None,
+                     issue_off: int | None = None) -> dict:
     """Applies the H1 gate to one pair (issue #3127 repair round, defect 2):
     computes H1 via `compute_h1_manipulation()`; if it fails, the pair is
     excluded from H2 and the exclusion + reason are recorded in the
@@ -659,8 +777,17 @@ def gate_pair_on_h1(pair_id: str, workspace_on: Path | None,
     `skill_name` (re-operationalized 2026-09-02) is the target skill
     whose invocation compute_h1_manipulation() checks for; omitting it
     forces an automatic H1 failure (see compute_h1_manipulation()).
+
+    `repo`/`issue_on`/`issue_off` (issue #3245 round 3): passed through to
+    `compute_h1_manipulation()`/`collect_skill_invocation()` so a missing
+    session log at the guessed workspace path can be resolved by
+    discovering the arm's real PR/branch instead of being reported as
+    "never dispatched" on the strength of one guessed path -- see
+    `_discover_arm_branch()`'s docstring.
     """
-    h1 = compute_h1_manipulation(workspace_on, workspace_off, skill_name)
+    h1 = compute_h1_manipulation(workspace_on, workspace_off, skill_name,
+                                  repo=repo, issue_on=issue_on,
+                                  issue_off=issue_off)
     result = {"pair_id": pair_id, "h1": h1, "h1_manipulation_ok": h1["differs"]}
     if not h1["differs"]:
         result["excluded_from_h2"] = True
@@ -921,7 +1048,9 @@ def run_pair(plan: Plan, pair: PairPlan, on_issue: int, off_issue: int,
                                     evaluator_fn=evaluator_fn)
 
     gated = gate_pair_on_h1(pair.pair_id, workspace_on, workspace_off,
-                             skill_name=plan.skill_name, compute_h2=compute_h2)
+                             skill_name=plan.skill_name, compute_h2=compute_h2,
+                             repo=plan.sandbox_repo, issue_on=on_issue,
+                             issue_off=off_issue)
     if gated.get("h2", {}) and gated["h2"].get("h2_unavailable"):
         gated["h2_unavailable_reason"] = gated["h2"]["h2_unavailable_reason"]
         gated["h2"] = None

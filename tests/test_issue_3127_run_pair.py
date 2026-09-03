@@ -85,7 +85,7 @@ class RunPairTest(unittest.TestCase):
                 return f"deliverable text for issue {issue}, no slug"
 
             with mock.patch.object(rcp, "collect_skill_invocation") as m_inv:
-                m_inv.side_effect = lambda ws, skill: \
+                m_inv.side_effect = lambda ws, skill, **kw: \
                     _fake_invocation(invoked="101" in str(ws))
                 result = rcp.run_pair(
                     self.plan, self.pair, on_issue=101, off_issue=102,
@@ -111,11 +111,19 @@ class RunPairTest(unittest.TestCase):
 
         with mock.patch.object(rcp, "execute_arm") as m_exec, \
              mock.patch.object(rcp, "arm_workspace_dir") as m_ws, \
-             mock.patch.object(rcp, "collect_directive_bytes") as m_bytes:
+             mock.patch.object(rcp, "collect_directive_bytes") as m_bytes, \
+             mock.patch.object(rcp, "_discover_arm_branch") as m_disc:
             m_exec.side_effect = lambda plan, pair, arm, issue, confirm: \
                 _watched_result(arm.name, issue)
             m_ws.side_effect = lambda plan, issue: Path(f"/tmp/ws-{issue}")
             m_bytes.return_value = 500  # identical for both arms -> H1 fails
+            # No mocked session log next to /tmp/ws-<n> -- without this,
+            # collect_skill_invocation() would try a real `gh pr list`
+            # discovery poll (issue #3245 round 3 fix) against this test's
+            # fake repo path.
+            m_disc.return_value = {"found": False, "branch": None,
+                                    "pr_number": None, "attempts": 1,
+                                    "reason": "mocked: not found"}
 
             result = rcp.run_pair(
                 self.plan, self.pair, on_issue=201, off_issue=202,
@@ -135,7 +143,7 @@ class RunPairTest(unittest.TestCase):
             m_exec.side_effect = lambda plan, pair, arm, issue, confirm: \
                 _watched_result(arm.name, issue)
             m_ws.side_effect = lambda plan, issue: Path(f"/tmp/ws-{issue}")
-            m_inv.side_effect = lambda ws, skill: \
+            m_inv.side_effect = lambda ws, skill, **kw: \
                 _fake_invocation(invoked="301" in str(ws))
 
             result = rcp.run_pair(
