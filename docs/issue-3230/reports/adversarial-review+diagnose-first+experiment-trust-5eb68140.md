@@ -405,8 +405,7 @@ for Round 2's refusal in section 3 (real, evidenced obstacles ≠
 Incorrect/Absent, but the issue's "demonstrated, not assumed" bar still
 unmet ≠ a clean Present) instead of collapsing that judgment into a bare
 binary label.
-skill-verdict: defect-verification-independence-from-upstream-verdicts —
-applied: invoked; re-derived the amendment-channel citations and the
+skill-verdict: defect-verification-independence-from-upstream-verdicts — applied: invoked; re-derived the amendment-channel citations and the
 truncation diff from primary source rather than citing Round 2's or PR
 #3240's/#3242's prior verdicts, and devised one attempt (the
 issue-scoped re-grouping in section 4) that neither prior round ran
