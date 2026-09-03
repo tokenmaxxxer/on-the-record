@@ -116,6 +116,56 @@ def test_build_transport_verifies_clean_against_prepare_arms_manifest(
     assert verdict["pair_excluded"] is False
 
 
+# --- seed_arm_credentials: closes the fresh-HOME login gap without ------
+# --- touching anything verify_manipulation.py cross-checks --------------
+
+def test_seed_arm_credentials_copies_identical_bytes(tmp_path):
+    source = tmp_path / "source-credentials.json"
+    source.write_text('{"claudeAiOauth": {"accessToken": "tok"}}')
+    home_on = tmp_path / "home-on"
+    home_off = tmp_path / "home-off"
+    home_on.mkdir()
+    home_off.mkdir()
+    result_on = run_pair.seed_arm_credentials(home_on, source=source)
+    result_off = run_pair.seed_arm_credentials(home_off, source=source)
+    assert result_on == {"seeded": True, "source": str(source)}
+    assert result_off == {"seeded": True, "source": str(source)}
+    dest_on = home_on / ".claude" / ".credentials.json"
+    dest_off = home_off / ".claude" / ".credentials.json"
+    assert dest_on.read_bytes() == source.read_bytes()
+    assert dest_off.read_bytes() == source.read_bytes()
+
+
+def test_seed_arm_credentials_missing_source_reports_not_seeded(tmp_path):
+    result = run_pair.seed_arm_credentials(
+        tmp_path / "home", source=tmp_path / "no-such-credentials.json")
+    assert result["seeded"] is False
+    assert "reason" in result and result["reason"]
+
+
+def test_run_pair_fails_closed_when_operator_credential_missing(
+        monkeypatch, tmp_path, populated_skills_root):
+    """silent-failure-audit: a missing operator credential must exclude
+    the pair with a stated reason, never silently dispatch an arm that
+    would just fail later on "Not logged in" with a misleading message."""
+    monkeypatch.setattr(
+        run_pair, "seed_arm_credentials",
+        lambda home, source=None: {
+            "seeded": False, "reason": "no credential on this machine"})
+    task_file = run_pair.TASKS_DIR / "01-study-groups.txt"
+    assert task_file.is_file()
+    monkeypatch.setenv("MUSTER_SKILL_REGISTRY_ROOT", str(populated_skills_root))
+    result = run_pair.run_pair(
+        "01-study-groups", "/tmp/fake-repo", "my-skill", "sonnet",
+        19, 20, tmp_path / "out", 1800, True)
+    assert result["status"] == "credential-seeding-failed"
+    assert result["excluded_from_h2"] is True
+    assert "no credential on this machine" in result["reason"]
+    # No manifest/transport is left behind for a pair that never reached
+    # the trust-rooted dispatch step.
+    assert not (tmp_path / "out" / "manifest.json").exists()
+
+
 # --- collect_verification_rounds / collect_cost: fail-closed, not fabricated
 
 def test_collect_verification_rounds_missing_pr_returns_none(tmp_path):

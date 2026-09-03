@@ -18,9 +18,20 @@ either:
 This module supplies only what neither of those already does: building the
 dispatch argv+env for each arm FROM the trust-root manifest (both HOME and
 MUSTER_SKILL_REPO, not MUSTER_SKILL_REPO alone the way #3127's ArmConfig
-did), and persisting a transport record of that argv+env to disk *before*
+did), persisting a transport record of that argv+env to disk *before*
 either arm is dispatched, so `verify_manipulation.py` has something
-launcher-owned to check the manifest against afterward.
+launcher-owned to check the manifest against afterward, and seeding each
+arm's fresh HOME with this launcher's own login credential
+(`seed_arm_credentials()`) so the dispatched `claude -p` process can
+authenticate at all -- a fresh `tempfile.mkdtemp()` HOME has no OAuth
+state, which independent-verification-1
+(docs/issue-3245/reports/independent-verification-1.md) found blocks
+every arm on "Not logged in" before any task work, misreported upstream
+as a hooks-don't-fire-headless regression. See that function's docstring
+for why this does not reintroduce anything `verify_manipulation.py`
+(issue #3183/PR #3185) removed as forgeable: the copy is identical across
+arms and touches neither `HOME` nor `MUSTER_SKILL_REPO`, the only two
+variables that check reads.
 
 skills-off's `--skills` value carries the `skill-repo:` source qualifier
 (issue #2579), exactly as #3127's run established live: without it, a real
@@ -127,6 +138,53 @@ def build_transport(manifest: dict, skill_name: str, model: str,
                             manifest["skills_root_env_var"]: off_arm["skills_root"]}},
         },
     }
+
+
+def seed_arm_credentials(home: Path, source: Path | None = None) -> dict:
+    """Copies this launcher's own operator login credential
+    (`~/.claude/.credentials.json`) into an arm's isolated, freshly
+    created HOME, identically for both arms, so the dispatched `claude -p`
+    session can authenticate at all.
+
+    `prepare_arms.py`'s fresh `tempfile.mkdtemp()` HOME (issue #3183/PR
+    #3185) isolates exactly two things: `HOME` and `MUSTER_SKILL_REPO`,
+    per arm -- the manipulated variable this instrument measures is skill
+    reachability, and that is gated entirely by the `--plugin-dir` argv
+    flag `spawn_command()` builds from `MUSTER_SKILL_REPO`, not by
+    anything under `HOME` (confirmed live: `spawn.py`'s own
+    `core_plugin_dirs()` attaches skills via `--plugin-dir`, "마켓플레이스
+    설치가 아니라" -- not a marketplace install written into `HOME`). A
+    fresh HOME has no OAuth state at all, though, so the dispatched
+    `claude -p` process fails immediately on "Not logged in" before doing
+    any task work -- this was independent-verification-1's finding
+    (docs/issue-3245/reports/independent-verification-1.md), reproduced
+    live in `docs/issue-3245/_assets/01-study-groups/result.json`'s own
+    `dispatch_stderr`.
+
+    Seeding the identical credential file into both arms' HOMEs closes
+    that gap without touching the thing being measured: the copy is
+    byte-identical across arms (same source, same launcher call, before
+    either arm is dispatched), so it adds nothing either arm could use to
+    distinguish itself from the other, and `verify_manipulation.py`'s
+    cross-check (HOME, MUSTER_SKILL_REPO match against the manifest) is
+    unaffected -- this function touches neither.
+
+    Fails visibly, not silently: a missing source credential is reported
+    as `{"seeded": False, "reason": ...}` for `run_pair()` to fail closed
+    on, never a dispatch that proceeds anyway and fails later with a
+    misleading "hooks don't fire" message."""
+    source = source or Path(os.environ.get("HOME", "")) / ".claude" / ".credentials.json"
+    if not source.is_file():
+        return {"seeded": False,
+                "reason": f"operator credential not found at {source} -- "
+                          "this launcher's own session is not logged in, "
+                          "cannot seed an arm HOME with it"}
+    dest_dir = home / ".claude"
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    dest = dest_dir / ".credentials.json"
+    dest.write_bytes(source.read_bytes())
+    dest.chmod(0o600)
+    return {"seeded": True, "source": str(source)}
 
 
 _LEAK_PRONE_ENV_RE = re.compile(r"^(CLAUDE|MUSTER|TOKENMAXXXER)_[A-Z0-9_]*$")
@@ -296,6 +354,21 @@ def run_pair(pair_id: str, repo: str, skill_name: str, model: str,
         return {"pair_id": pair_id, "status": "manifest-preparation-failed",
                 "reason": str(exc), "excluded_from_h2": True,
                 "exclusion_reason": str(exc), "h2": None}
+
+    credential_seeding = {
+        arm["arm"]: seed_arm_credentials(Path(arm["home"]))
+        for arm in manifest["arms"]
+    }
+    if not all(r["seeded"] for r in credential_seeding.values()):
+        prepare_arms._cleanup(created_dirs)
+        reason = "; ".join(
+            f"{arm}: {r['reason']}" for arm, r in credential_seeding.items()
+            if not r["seeded"])
+        return {"pair_id": pair_id, "status": "credential-seeding-failed",
+                "reason": reason, "excluded_from_h2": True,
+                "exclusion_reason": reason, "h2": None,
+                "credential_seeding": credential_seeding}
+
     manifest_path = out_dir / "manifest.json"
     manifest_text = prepare_arms.render_manifest_json(manifest)
     manifest_path.write_text(manifest_text, encoding="utf-8")
@@ -304,6 +377,7 @@ def run_pair(pair_id: str, repo: str, skill_name: str, model: str,
 
     transport = build_transport(manifest, skill_name, model, task_text, repo,
                                  on_issue, off_issue)
+    transport["credential_seeding"] = credential_seeding
     transport_path = out_dir / "transport.json"
     transport_path.write_text(json.dumps(transport, indent=2), encoding="utf-8")
 
