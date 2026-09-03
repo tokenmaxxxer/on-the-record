@@ -45,7 +45,12 @@ SCRIPT = ROOT / "scripts" / "preflight" / "consumer_preconditions.py"
 REQUIRED_FIELDS = ("name", "satisfied", "remedy", "source")
 
 # "spawn.py:2668,4639 (...)" / "board.py:246-256 (...)" / "path/to/x.sh:341 (...)"
-SOURCE_RE = re.compile(r"^(?P<file>\S+?):(?P<lines>[0-9]+(?:[,-][0-9]+)*)(?:\s|$)")
+# Issue #3297: the `source` prose names a file, not a file:line. Line
+# numbers here drifted silently -- nothing verified them, unlike
+# `line_anchors`, which are now ordinals checked against the real file.
+# A citation that can rot without anyone noticing is worse than one that
+# points at the file and makes the reader look.
+SOURCE_RE = re.compile(r"^(?P<file>[\w./-]+\.(?:py|sh))(?:\s|$)")
 
 # Imported directly (not just driven as a subprocess) so the disk-headroom
 # observation-failure tests below can monkeypatch os.statvfs.
@@ -96,12 +101,13 @@ class PreflightJsonShapeTest(unittest.TestCase):
                     field, entry, f"entry {entry.get('name', entry)!r} missing {field!r}"
                 )
 
-    def test_every_source_cites_a_real_file_with_a_line_number(self):
+    def test_every_source_cites_a_real_file(self):
         for entry in self.data["preconditions"]:
             source = entry["source"]
             m = SOURCE_RE.match(source)
             self.assertIsNotNone(
-                m, f"{entry['name']}: source {source!r} has no <file>:<line> prefix"
+                m, f"{entry['name']}: source {source!r} does not start with a "
+                "file path"
             )
             cited_path = ROOT / m.group("file")
             self.assertTrue(

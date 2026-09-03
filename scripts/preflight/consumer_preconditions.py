@@ -47,7 +47,7 @@ from pathlib import Path
 
 SUBPROCESS_TIMEOUT_SECONDS = 10
 
-# Mirrors spawn.py's own _spawn_capacity_check() defaults (spawn.py:725-726)
+# Mirrors spawn.py's own _spawn_capacity_check() defaults (spawn.py)
 # so this check degrades the same way spawn.py's real gate would, without
 # importing spawn.py itself.
 MIN_FREE_BYTES_DEFAULT = 3 * 119 * 1024 * 1024   # ~357MB
@@ -185,8 +185,8 @@ def check_remote_push_access() -> tuple[bool, str]:
 
 
 def check_workspace_disk_headroom() -> tuple[bool, str]:
-    """Mirrors spawn.py's `_spawn_capacity_check(path)` gate (spawn.py:729-764,
-    called at spawn.py:3365 before every workspace clone): observes the same
+    """Mirrors spawn.py's `_spawn_capacity_check(path)` gate (spawn.py,
+    called at spawn.py before every workspace clone): observes the same
     `shutil.disk_usage()`/`os.statvfs()` headroom under the same default
     thresholds and the same env-var overrides, without creating, deleting, or
     cloning anything itself. `os.statvfs` is POSIX (present on both macOS and
@@ -236,6 +236,14 @@ def check_workspace_disk_headroom() -> tuple[bool, str]:
     return True, f"{usage.free // (1024 * 1024)}MB free, {free_inodes} free inodes at {probe}"
 
 
+# Issue #3297: the second field of each `line_anchors` entry is an
+# ORDINAL -- the Nth real-code occurrence of the anchor text in that file
+# -- not a line number. Line numbers drifted six times as `spawn.py` grew,
+# most recently twice in one day, and each drift cost a manual repair that
+# taught nobody anything. An ordinal only changes when someone adds or
+# removes an occurrence of that exact call, which is a real change worth
+# noticing. The human-readable `source` strings no longer carry line
+# numbers either: nothing checked them, so they drifted silently.
 CHECKS = [
     {
         "name": "posix_fork_support",
@@ -246,14 +254,14 @@ CHECKS = [
             "reporting a supported sys.platform."
         ),
         "source": (
-            "spawn.py:5013 (os.fork()/os.setsid() drives _spawn_one(), the "
+            "spawn.py (os.fork()/os.setsid() drives _spawn_one(), the "
             "real role-session spawn path); the same fork+setsid+dup2 "
-            "pattern also appears at spawn.py:2846 (background "
+            "pattern also appears at spawn.py (background "
             "validity-consult, a different feature that mirrors it)"
         ),
         "line_anchors": [
-            ("spawn.py", 5013, "os.fork()"),
-            ("spawn.py", 2846, "os.fork()"),
+            ("spawn.py", 2, "os.fork()"),
+            ("spawn.py", 1, "os.fork()"),
         ],
     },
     {
@@ -261,31 +269,31 @@ CHECKS = [
         "fn": check_claude_cli_present,
         "remedy": "Install the Claude Code CLI so `claude` resolves on PATH.",
         "source": (
-            'pipeline.py:661 (spawn_cmd builds cmd = ["claude", "-p", ...]); '
-            "spawn.py:5070 (_spawn_one() is what actually execs it, via "
+            'pipeline.py (spawn_cmd builds cmd = ["claude", "-p", ...]); '
+            "spawn.py (_spawn_one() is what actually execs it, via "
             "subprocess.Popen(cmd, ...))"
         ),
         "line_anchors": [
-            ("pipeline.py", 661, 'cmd = ["claude"'),
-            ("spawn.py", 5070, "subprocess.Popen("),
+            ("pipeline.py", 1, 'cmd = ["claude"'),
+            ("spawn.py", 2, "subprocess.Popen("),
         ],
     },
     {
         "name": "git_cli_on_path",
         "fn": check_git_cli_present,
         "remedy": "Install git so `git` resolves on PATH.",
-        "source": 'pipeline.py:798 (subprocess.run(["git", "-C", cwd, "remote", "get-url", "origin"], ...))',
+        "source": 'pipeline.py (subprocess.run(["git", "-C", cwd, "remote", "get-url", "origin"], ...))',
         "line_anchors": [
-            ("pipeline.py", 798, 'subprocess.run(["git", "-C", cwd, "remote", "get-url"'),
+            ("pipeline.py", 1, 'subprocess.run(["git", "-C", cwd, "remote", "get-url"'),
         ],
     },
     {
         "name": "gh_cli_authenticated",
         "fn": check_gh_cli_authenticated,
         "remedy": "Run `gh auth login` with the account that should own spawns/PRs.",
-        "source": 'plumbing.py:355 (subprocess.run(["gh", "auth", "token"], ...) inside _resolve_gh_token(), used by spawn_cmd to inject GH_TOKEN)',
+        "source": 'plumbing.py (subprocess.run(["gh", "auth", "token"], ...) inside _resolve_gh_token(), used by spawn_cmd to inject GH_TOKEN)',
         "line_anchors": [
-            ("plumbing.py", 355, 'subprocess.run(["gh", "auth", "token"]'),
+            ("plumbing.py", 1, 'subprocess.run(["gh", "auth", "token"]'),
         ],
     },
     {
@@ -295,9 +303,9 @@ CHECKS = [
             'Run `git config --global user.name "<name>"` and '
             '`git config --global user.email "<email>"`.'
         ),
-        "source": 'board.py:83-86 (subprocess.run(["git", "-C", str(root), "commit", ...]) in init --push, fails with empty ident if unset)',
+        "source": 'board.py (subprocess.run(["git", "-C", str(root), "commit", ...]) in init --push, fails with empty ident if unset)',
         "line_anchors": [
-            ("board.py", 83, 'subprocess.run(["git", "-C", str(root), "commit"'),
+            ("board.py", 1, 'subprocess.run(["git", "-C", str(root), "commit"'),
         ],
     },
     {
@@ -309,9 +317,9 @@ CHECKS = [
             "$TOKENMAXXXER_RULEBOOKS/skill-repository) or set "
             "MUSTER_SKILL_REPO=<checkout>/skills."
         ),
-        "source": "skills.py:197-212 (_skill_repo_root: MUSTER_SKILL_REPO env > sibling clone > managed clone)",
+        "source": "skills.py (_skill_repo_root: MUSTER_SKILL_REPO env > sibling clone > managed clone)",
         "line_anchors": [
-            ("skills.py", 197, "def _skill_repo_root"),
+            ("skills.py", 1, "def _skill_repo_root"),
         ],
     },
     {
@@ -322,9 +330,9 @@ CHECKS = [
             "spawned session should resolve locally -- no plugin install "
             "populates this directory."
         ),
-        "source": "skills.py:501 (tier3 = _sp._local_skill_dirs(home / \".claude\" / \"skills\"))",
+        "source": "skills.py (tier3 = _sp._local_skill_dirs(home / \".claude\" / \"skills\"))",
         "line_anchors": [
-            ("skills.py", 501, '_local_skill_dirs(home / ".claude" / "skills")'),
+            ("skills.py", 1, '_local_skill_dirs(home / ".claude" / "skills")'),
         ],
     },
     {
@@ -335,9 +343,9 @@ CHECKS = [
             "to create docs/specs/approvers.md, then push it -- every spawn "
             "is refused admission until the remote default branch carries it."
         ),
-        "source": "board.py:246-256 (require_board: exits if docs/specs/approvers.md is absent)",
+        "source": "board.py (require_board: exits if docs/specs/approvers.md is absent)",
         "line_anchors": [
-            ("board.py", 246, "def require_board"),
+            ("board.py", 1, "def require_board"),
         ],
     },
     {
@@ -349,14 +357,14 @@ CHECKS = [
             "as -- this cannot be checked without a mutating write."
         ),
         "source": (
-            "on-the-record/hooks/git-push-guard.sh:341 (_ROLE_BRANCH_RE.match(d), "
+            "on-the-record/hooks/git-push-guard.sh (_ROLE_BRANCH_RE.match(d), "
             "the primary enforcing logic that requires an issue-<n>/<skill> "
             "branch); line 354 carries the remedy text for the fail-closed "
             "edge case where the remote's default branch cannot be resolved"
         ),
         "line_anchors": [
-            ("on-the-record/hooks/git-push-guard.sh", 341, "_ROLE_BRANCH_RE.match(d)"),
-            ("on-the-record/hooks/git-push-guard.sh", 354,
+            ("on-the-record/hooks/git-push-guard.sh", 1, "_ROLE_BRANCH_RE.match(d)"),
+            ("on-the-record/hooks/git-push-guard.sh", 1,
              "push your own role branch instead"),
         ],
     },
@@ -371,18 +379,18 @@ CHECKS = [
             "MUSTER_SKIP_SPACE_CHECK=1."
         ),
         "source": (
-            "spawn.py:738-771 (_spawn_capacity_check: shutil.disk_usage() at "
-            "spawn.py:749, sys.exit() at spawn.py:754 when free bytes fall "
+            "spawn.py (_spawn_capacity_check: shutil.disk_usage() at "
+            "spawn.py, sys.exit() at spawn.py when free bytes fall "
             "below MIN_FREE_BYTES_DEFAULT, os.statvfs() inode check follows "
             "and sys.exit()s again if free inodes fall below "
-            "MIN_FREE_INODES_DEFAULT) -- called at spawn.py:3442, before "
+            "MIN_FREE_INODES_DEFAULT) -- called at spawn.py, before "
             "every workspace clone attempt"
         ),
         "line_anchors": [
-            ("spawn.py", 738, "def _spawn_capacity_check"),
-            ("spawn.py", 749, "shutil.disk_usage"),
-            ("spawn.py", 754, "sys.exit("),
-            ("spawn.py", 3442, "_spawn_capacity_check(work)"),
+            ("spawn.py", 1, "def _spawn_capacity_check"),
+            ("spawn.py", 1, "shutil.disk_usage"),
+            ("spawn.py", 2, "sys.exit("),
+            ("spawn.py", 1, "_spawn_capacity_check(work)"),
         ],
     },
 ]

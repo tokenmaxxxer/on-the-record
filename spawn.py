@@ -2549,7 +2549,14 @@ def main() -> int:
     if a.role in _INTERNAL_SUBCOMMANDS_NEVER_SPAWN:
         a.skills = None
         a.skill = None
-    if a.skills:
+    # Issue #3280: `is not None`, not truthiness. An empty `--skills ""` is
+    # a caller asking to mount nothing, which `skills.py`'s
+    # `resolved_skill_dirs()` has always supported on a byte-identical code
+    # path -- only this CLI could not express it, because an empty value
+    # was indistinguishable from the flag being absent. Omitting the flag
+    # entirely is still refused below; the retired bare-task spawn stays
+    # retired.
+    if a.skills is not None:
         # Same argparse-binding convention as `--skill` right below: with
         # only one positional slot left once a selector flag takes over
         # session identity, argparse binds the lone remaining token to
@@ -2566,7 +2573,11 @@ def main() -> int:
                      '(checkout_issue_branch_for_skill, pipeline.py:1135) '
                      'has no adhoc/issue-less form')
         skill_names = [n.strip() for n in a.skills.split(",") if n.strip()]
-        if not skill_names:
+        # An empty selector is a control arm, not a mistake. A non-empty
+        # one that resolves to nothing (`--skills ",,"`) still is a
+        # mistake -- the caller named something and it survived as
+        # nothing -- so only a literally empty value passes here.
+        if not skill_names and a.skills.strip():
             sys.exit(f"--skills: empty skill list -- {a.skills!r}")
         # This only *names* the branch/record identity from what was
         # asked for -- actual resolution (does each name exist in one of
@@ -2582,7 +2593,10 @@ def main() -> int:
         # 해석(`resolved_skill_sources()`)은 원본 `a.skills`(한정자 포함)를
         # 그대로 받으므로 여기서 한정자를 벗겨도 fail-closed 판정에는
         # 영향이 없다.
-        skill_slug = skill_branch_slug(skill_names)
+        # Issue #3280: a no-skills arm still needs a branch/record
+        # identity. `no-skills` names what it is rather than borrowing a
+        # skill name it does not have.
+        skill_slug = skill_branch_slug(skill_names) if skill_names else "no-skills"
         disambiguator = new_lease_disambiguator()
         _skills_branch_identity = (skill_slug, disambiguator)
         a.role = f"{skill_slug}-{disambiguator}"

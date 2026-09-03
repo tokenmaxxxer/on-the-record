@@ -176,6 +176,13 @@ def _line_is_code_match(path: Path, lineno: int, expected: str) -> bool:
     return expected in _code_only_line(path, lineno)
 
 
+def _code_occurrences(path: Path, expected: str) -> list[int]:
+    """Line numbers where `expected` appears as real code, in order."""
+    total = len(path.read_text(encoding="utf-8").splitlines())
+    return [n for n in range(1, total + 1)
+            if expected in _code_only_line(path, n)]
+
+
 class CitationLineAccuracyTest(unittest.TestCase):
     def test_every_check_declares_at_least_one_line_anchor(self):
         for check in _cp.CHECKS:
@@ -190,7 +197,7 @@ class CitationLineAccuracyTest(unittest.TestCase):
         failures = []
         anchor_count = 0
         for check in _cp.CHECKS:
-            for rel_path, lineno, expected in check["line_anchors"]:
+            for rel_path, ordinal, expected in check["line_anchors"]:
                 anchor_count += 1
                 cited_path = ROOT / rel_path
                 if not cited_path.is_file():
@@ -198,11 +205,18 @@ class CitationLineAccuracyTest(unittest.TestCase):
                         f"{check['name']}: {rel_path} does not exist under {ROOT}"
                     )
                     continue
-                if not _line_is_code_match(cited_path, lineno, expected):
+                # Issue #3297: anchors are ordinals now -- the Nth
+                # real-code occurrence -- because line numbers drifted six
+                # times as these files grew, twice in one day. An ordinal
+                # only moves when someone adds or removes an occurrence of
+                # that exact call, which is a change worth noticing.
+                hits = _code_occurrences(cited_path, expected)
+                if len(hits) < ordinal:
                     failures.append(
-                        f"{check['name']}: {rel_path}:{lineno} does not contain "
-                        f"{expected!r} as real code -- actual line: "
-                        f"{_line(cited_path, lineno)!r}"
+                        f"{check['name']}: {rel_path} has {len(hits)} "
+                        f"real-code occurrence(s) of {expected!r}, so the "
+                        f"anchor's #{ordinal} does not exist -- the cited "
+                        "call was removed or renamed"
                     )
         # Locks in the count this docstring and the round-4 record cite --
         # a silent drop in anchor count (a check losing its line_anchors
@@ -329,14 +343,18 @@ class CitationCommentAndStringDiscriminationTest(unittest.TestCase):
         # older test class.
         checked = 0
         for check in _cp.CHECKS:
-            for rel_path, lineno, expected in check["line_anchors"]:
+            for rel_path, ordinal, expected in check["line_anchors"]:
                 checked += 1
                 cited_path = ROOT / rel_path
                 self.assertTrue(cited_path.is_file(), f"{rel_path} missing")
-                self.assertTrue(
-                    _line_is_code_match(cited_path, lineno, expected),
-                    f"{check['name']}: {rel_path}:{lineno} does not contain "
-                    f"{expected!r} as real code",
+                # Same discriminating matcher, resolved by ordinal
+                # (issue #3297) -- comments and docstrings still do not
+                # count as occurrences, which is what this class proves.
+                hits = _code_occurrences(cited_path, expected)
+                self.assertGreaterEqual(
+                    len(hits), ordinal,
+                    f"{check['name']}: {rel_path} has {len(hits)} real-code "
+                    f"occurrence(s) of {expected!r}, anchor wants #{ordinal}",
                 )
         self.assertEqual(checked, 16)
 
