@@ -7,7 +7,7 @@ code_under_review: PR #3251, sha 16e96c75442d6804cdb0707326157c6c55dacc20 (scrip
 loop_state: complete
 type: review
 breaking: false
-verdict: pass
+verdict: fail
 upstream:
   - path: 16e96c75442d6804cdb0707326157c6c55dacc20:docs/issue-3245/reports/experiment-trust+product-discovery-hypothesis-testing+silent-failure-audit-7b04b22b.md
     sha: 16e96c75442d6804cdb0707326157c6c55dacc20
@@ -27,6 +27,25 @@ this record verifies.
 Independent, second-observer verification of PR #3251, built in a
 separate `git worktree` checked out at PR #3251's head commit
 (`/tmp/verify-3245-pr3251`).
+
+amendments-reconciled: issuecomment-5518683506 — the operator's addendum,
+posted after this session started, instructs both verification sessions
+to reproduce PR #3251's dispatch-failure diagnosis directly rather than
+accept it.
+
+derived: `gh api repos/tokenmaxxxer/on-the-record/issues/comments/5518683506` (this session, this turn) — result (body, excerpted):
+```
+Of 24 spawned-session logs from today on this machine, 20 contain plugin
+hook activity -- PreToolUse denials, record-claim-guard refusals,
+heredoc-refusal-gate messages. Those sessions are headless `claude -p`
+dispatches through the same spawn.py path. Hooks are firing in them.
+Reproduce the dispatch failure yourself and read the real error rather
+than the diagnosis.
+```
+This session's own transcript is itself one more data point for that
+count: every gate quoted throughout this record (`record-claim-guard`,
+`heredoc-command-refusal-gate`, `pr-preflight`) fired against this exact
+headless session on the exact CLI version PR #3251 blames.
 
 Re-ran all three of issue #3245's own acceptance checks live on that
 worktree:
@@ -62,9 +81,100 @@ matches PR #3251's claimed "554 passed (full suite, no regressions)"; the
 2 warnings are a pre-existing, unrelated pinned-fixture-divergence
 (issue #3019), not failures.
 
-Then audited the record's central claim — that the pair was excluded
-from scoring by a dispatch failure, not by `verify_manipulation.py`'s own
-manipulation check — against the raw artifact:
+### Root-cause reproduction (the operator's addendum, primary target)
+
+PR #3251's `result.json` attributes both arms' dispatch failure to "CLI
+2.1.259 does not fire plugin hooks in headless (`claude -p`) mode on this
+machine," diagnosed via `spawn.py`'s `doctor()` probe
+(`UserPromptSubmit`/`PreToolUse` fired-check). Per the operator's
+instruction, this session reproduced the dispatch, not just the
+diagnosis text.
+
+derived: `python3 spawn.py doctor` (this session's own real `$HOME`, this repo checkout, same CLI version) — result:
+```
+UserPromptSubmit: 발화 / PreToolUse: 발화  (CLI 2.1.259 (Claude Code))
+doctor-ok 기록. 이 버전에서 스폰이 열린다.
+```
+exit=0. The identical probe, on the identical CLI version PR #3251 blames,
+succeeds under this session's normal `$HOME` — directly contradicting a
+blanket "hooks don't fire headless on CLI 2.1.259" claim.
+
+The difference between this session's dispatch and PR #3251's arm
+dispatch is `$HOME`: `scripts/consumer-path/prepare_arms.py`'s trust-root
+design gives every arm a brand-new, empty `tempfile.mkdtemp()` `HOME`
+(no `.claude/` directory at all — deliberately, for skill-corpus
+isolation), and `run_pair.py::execute_arm()` runs the arm's
+`spawn.py`/`claude` subprocess calls under exactly that empty `HOME`.
+Reproducing `doctor()` under an equivalently empty `HOME` isolates that
+one variable:
+
+derived: `HOME=$(mktemp -d) python3 spawn.py doctor` (in the PR #3251 worktree, `/tmp/verify-3245-pr3251-b`, fresh empty tempdir as `$HOME`, otherwise identical command/CLI version) — result:
+```
+훅이 headless 에서 발화하지 않는다 — 이 CLI 버전으로는 룰북 집행이 성립하지 않는다. 스폰은 계속 막힌다.
+UserPromptSubmit: 발화 / PreToolUse: 침묵  (CLI 2.1.259 (Claude Code))
+```
+exit=1. This reproduces PR #3251's exact failure signature
+(`PreToolUse` silent) with the exact same CLI version, using nothing but
+an empty `$HOME` — no code change, no different CLI, no different
+machine.
+
+To find the real cause rather than stop at "reproduced," this session
+ran the underlying probe command directly (not through `doctor()`'s
+summary) to see the raw session result:
+
+derived: `HOME=<fresh empty tempdir> claude -p --plugin-dir <probe-plugin> --model haiku --output-format json --dangerously-skip-permissions <<< "Run this exact bash command and nothing else: echo ok"` — result (stdout, `--output-format json`):
+```
+{"...","terminal_reason":"api_error","is_error":true,"result":"Not logged in · Please run /login","subtype":"success",...}
+```
+`UserPromptSubmit` fired (its hook touched its marker file) but
+`PreToolUse` never did — because the session terminated on an
+authentication error (`Not logged in · Please run /login`) before it
+ever reached a tool call, not because the CLI silently drops plugin
+hooks. `doctor()`'s coarse "did `PreToolUse` fire" check cannot
+distinguish "hooks are broken" from "the session never got far enough to
+use a tool," and this run is the latter.
+
+To confirm auth (not hook-firing) is the single variable, this session
+re-ran the identical fresh-empty-`HOME` `doctor()` probe with only
+`.claude/.credentials.json` copied in (this user's own real credentials,
+nothing else — no plugin registration, no marketplace config):
+
+derived: `HOME=<fresh empty tempdir with only .claude/.credentials.json copied in> python3 spawn.py doctor` (in `/tmp/verify-3245-pr3251-b`) — result:
+```
+UserPromptSubmit: 발화 / PreToolUse: 발화  (CLI 2.1.259 (Claude Code))
+doctor-ok 기록. 이 버전에서 스폰이 열린다.
+```
+exit=0. With every other variable held at "empty, isolated `HOME`," the
+single addition of a credentials file flips the probe from fail to pass.
+
+derived: `grep -n "credentials\|ANTHROPIC_API_KEY\|CLAUDE_CODE_OAUTH_TOKEN" 16e96c75442d6804cdb0707326157c6c55dacc20:scripts/consumer-path/prepare_arms.py 16e96c75442d6804cdb0707326157c6c55dacc20:scripts/consumer-path/run_pair.py` (in `/tmp/verify-3245-pr3251-b`) — result:
+```
+(no matches)
+```
+This isolates the true cause precisely: `prepare_arms.py`'s
+`tempfile.mkdtemp()` arm HOMEs carry no `.claude/.credentials.json` and
+this launcher has no credential-provisioning step at all, so every arm
+dispatch under this launcher fails on an unauthenticated `claude -p`
+call, which `doctor()` misreports as "plugin hooks do not fire headless."
+
+derived: the three reproductions immediately above (`python3 spawn.py doctor` under this session's real `$HOME`: exit 0; `HOME=<empty>` `python3 spawn.py doctor`: exit 1, same failure signature as PR #3251's `result.json`; `HOME=<empty + credentials only>` `python3 spawn.py doctor`: exit 0) — **corrected diagnosis: PR #3251's root cause is wrong.** There is no
+environment-wide CLI/hook regression blocking "every `spawn.py --skills`
+dispatch on this machine" — this session's own headless dispatch, and
+`python3 spawn.py doctor` under this session's real `HOME`, both above,
+prove hooks fire fine on CLI 2.1.259 here. The actual defect is narrower
+and local to this PR's own launcher: `prepare_arms.py`'s trust-rooted,
+skill-corpus-isolated `HOME` construction has no step that provisions
+CLI authentication into the temporary `HOME` it builds, so any
+`claude -p` call made under that `HOME` — the arm's real task dispatch
+included, not just `doctor()`'s probe — fails immediately on "Not logged
+in," before hooks or the skill manipulation ever come into play. This
+matches the operator's second hypothesis exactly ("specific to how the
+pair launcher invokes spawn.py rather than to headless mode generally").
+
+Then audited the record's narrower, still-accurate claim — that the pair
+was excluded from scoring by a dispatch failure, not by
+`verify_manipulation.py`'s own manipulation check — against the raw
+artifact:
 
 derived: `cat 16e96c75442d6804cdb0707326157c6c55dacc20:docs/issue-3245/_assets/01-study-groups/result.json` (in `/tmp/verify-3245-pr3251`)
 ```
@@ -73,39 +183,15 @@ derived: `cat 16e96c75442d6804cdb0707326157c6c55dacc20:docs/issue-3245/_assets/0
 "excluded_from_h2": true,
 "exclusion_reason": "at least one arm did not reach watched-to-completion (on='dispatch-failed', off='dispatch-failed')"
 ```
-This confirms the PR's own phrasing ("manipulation check held; excluded
-from scoring per its own result.json") is accurate and not conflated:
+This narrower claim holds regardless of the root-cause error above:
 `verify_manipulation.py --report` correctly reports the pair as included
-(manipulation held, not excluded by that check), while `result.json`
-separately and correctly marks it excluded from H2 scoring for a
-different, dispatch-level reason.
+(manipulation held, not excluded by that check), and `result.json`
+separately and correctly marks it excluded from H2 for a dispatch-level
+reason — the exclusion bookkeeping is sound even though the stated cause
+of that dispatch failure is not.
 
-Checked the root-cause claim (a CLI/hook regression, not the on/off
-manipulation, caused the dispatch failure) against the actual gating code
-rather than taking the record's quotes on faith:
-
-derived: `sed -n '2175,2183p' 16e96c75442d6804cdb0707326157c6c55dacc20:spawn.py` (in `/tmp/verify-3245-pr3251`)
-```python
-def doctor() -> int:
-    """프로브 플러그인 하나로 실 세션을 띄워 UserPromptSubmit / PreToolUse 가
-    실제로 발화하는지 잰다. 성공하면 runs/doctor-ok 에 CLI 버전을 적는다."""
-    v = _claude_version()
-    if not v:
-        print("claude --version 실패", file=sys.stderr)
-        return 1
-    with tempfile.TemporaryDirectory() as td:
-        plug = Path(td) / "probe"
-```
-confirms `doctor()` is a real, pre-existing live-probe mechanism (spins
-up a `claude -p` session with a canary plugin, checks whether
-`UserPromptSubmit`/`PreToolUse` hooks actually fire, and fails closed if
-not) — not a check invented or altered by this PR. This corroborates
-`result.json`'s `dispatch_stderr` text ("훅이 headless 에서 발화하지
-않는다") as a real, reproducible mechanism rather than an unverifiable
-narrative claim.
-
-Checked two supporting citations in the subject record against their
-real sources rather than trusting the quotes:
+Checked two further supporting citations in the subject record against
+their real sources:
 
 derived: `grep -n "issue create\|issue close\|issue reopen\|issue edit\|CLAUDE_SKILL" "$CLAUDE_PLUGIN_ROOT_CORE/hooks/gh-guard.sh"` — result:
 ```
@@ -126,63 +212,69 @@ derived: `grep -n "skipped_malformed_lines\|ArmPreparationError" 16e96c75442d680
 confirms both silent-failure-audit fixes the subject record claims
 (`collect_cost()`'s previously-silent malformed-ledger-line `continue`,
 and the previously-unguarded `build_manifest()` call) are real code
-changes in this PR, not narrated-only claims.
-
-derived: `sed -n '77,80p' 16e96c75442d6804cdb0707326157c6c55dacc20:tests/test_issue_3245_pair_results.py` (in `/tmp/verify-3245-pr3251`)
-```python
-def test_off_arm_skills_argument_carries_qualifier_not_a_stub():
-    assert run_pair._skills_argument("my-skill", "on") == "my-skill"
-    assert run_pair._skills_argument("my-skill", "off") == "skill-repo:my-skill"
-    # The qualifier is a string on the --skills argument, not a directory
-```
-one of the 14 tests read directly (not just its collected pass count):
-this test and its neighbors exercise real manifest/transport
-construction and failure-path behavior, not a vacuous or tautological
-suite.
+changes in this PR, not narrated-only claims — these hold independently
+of the root-cause error above.
 
 ## Why
 
-canonical: `gh issue view 3245` body (this session, this turn) — the
-acceptance section requires exactly the three checks above plus a
-must-not (no pair reported scored without a passing manipulation check
-recorded against it, excluded pairs shown with reasons).
+canonical: `gh issue view 3245` body plus `issuecomment-5518683506`
+(both read this session) — the issue's acceptance section requires the
+three checks above plus a must-not; the operator's addendum makes the
+dispatch-failure diagnosis the primary thing to verify, not a detail.
 
-The verification task here is narrower than judging whether R007 itself
-is answered: it is to confirm the delivered work is what it claims to
-be. acceptance: the three checks in "What was done" ran live in this
-session and matched PR #3251's claimed counts exactly (14 passed / 18
-passed / exit 0 with 1 pair found); the `result.json` and
-`gh-guard.sh`/`run_pair.py` cross-checks in "What was done" were each
-independently reproduced rather than taken on trust. Given that, and
-given the PR's own `Advances #3245` trailer (correctly not claiming to
-close the issue for a five-pair deliverable that produced zero scored
-pairs), this record verifies the subject as a faithful, non-overclaiming
-delivery of what PR #3251 says it delivers.
+derived: the acceptance runs quoted in "What was done" (14 passed / 18
+passed / exit 0 with 1 pair found) and the `result.json` exclusion quote
+in the same section (`excluded_from_h2: true`, 0 pairs scored) — the
+three mechanical acceptance checks pass exactly as PR #3251 claims, and
+the exclusion bookkeeping (manipulation held, excluded from H2 for a
+dispatch reason) is sound. But the deliverable's central substantive
+claim — that those zero scored pairs are explained by "a freshly-
+measured, environment-wide CLI/hook regression... unrelated to the
+skills-on/off manipulation" that "blocks every `spawn.py --skills`
+dispatch on this machine" — is not what actually happened, per
+"Root-cause reproduction" above: `python3 spawn.py doctor` succeeded
+under this session's real `HOME` on the identical CLI version, and
+swapping in only a credentials file to an otherwise-empty `HOME` flipped
+the same probe from fail to pass. The real cause is this launcher's own
+`prepare_arms.py` never provisioning auth into the isolated `HOME` it
+builds per arm — a bug in this PR's trust-root construction, not a
+CLI/hook regression, and not environment-wide (this session, and most of
+today's other sessions per the operator's own count quoted in "What was
+done," dispatch fine on this same machine). Recording the wrong
+diagnosis as established fact would have stopped the next session from
+looking further, exactly the risk the operator's addendum names.
+`verdict: fail` reflects that this PR's central claim does not survive
+independent reproduction, even though its mechanical acceptance checks
+and its narrower exclusion bookkeeping do.
 
 ## What did not work
 
-None — every check reproduced live matched the PR's claimed result
-exactly, and every citation traced back to real code/artifacts (see
-"What was done").
+The three literal acceptance checks and the narrower exclusion-bookkeeping
+claim held up under reproduction (see "What was done"). What did not
+survive reproduction is the subject record's stated root cause for the
+dispatch failure: "Root-cause reproduction" above shows the diagnosed
+"environment-wide CLI/hook regression" does not reproduce under this
+session's normal `HOME` on the same CLI version, and does reproduce (with
+the exact same failure signature) the moment `HOME` is emptied of
+credentials — pinning the real cause to this PR's own `prepare_arms.py`
+HOME construction, not the CLI.
 
 ## Upstream basis
 
+canonical: the reproduction commands and outputs in "What was done" §
+Root-cause reproduction (this session's own transcript this turn) —
+every bullet below is backed by that section, not restated here.
+
 - PR #3251 / `16e96c75442d6804cdb0707326157c6c55dacc20:docs/issue-3245/reports/experiment-trust+product-discovery-hypothesis-testing+silent-failure-audit-7b04b22b.md` — the subject record this verification audits.
-- `16e96c75442d6804cdb0707326157c6c55dacc20:scripts/consumer-path/run_pair.py`, `16e96c75442d6804cdb0707326157c6c55dacc20:scripts/consumer-path/verify_manipulation.py`, `16e96c75442d6804cdb0707326157c6c55dacc20:tests/test_issue_3245_pair_results.py` — the code under review, re-run live in a fresh worktree at PR #3251's head commit (see "What was done" acceptance runs).
-- `16e96c75442d6804cdb0707326157c6c55dacc20:docs/issue-3245/_assets/01-study-groups/result.json` — the raw dispatch-attempt artifact cross-checked against the subject record's exclusion-reason claim, quoted in "What was done".
-- `16e96c75442d6804cdb0707326157c6c55dacc20:spawn.py` (`doctor()`, lines 2175-2183) — read live this session; quoted in full in "What was done" above, which this section defers to rather than repeating.
+- `16e96c75442d6804cdb0707326157c6c55dacc20:scripts/consumer-path/prepare_arms.py`, `16e96c75442d6804cdb0707326157c6c55dacc20:scripts/consumer-path/run_pair.py`, `16e96c75442d6804cdb0707326157c6c55dacc20:scripts/consumer-path/verify_manipulation.py`, `16e96c75442d6804cdb0707326157c6c55dacc20:tests/test_issue_3245_pair_results.py` — the code under review, re-run and reproduced live in a fresh worktree at PR #3251's head commit.
+- `16e96c75442d6804cdb0707326157c6c55dacc20:docs/issue-3245/_assets/01-study-groups/result.json` — the raw dispatch-attempt artifact whose stated root cause this session reproduced and found incorrect.
+- `spawn.py::doctor()` / `pipeline.py::require_doctor()` — this repo's shared, unmodified gate, exercised directly under three different `HOME` conditions.
+- `issuecomment-5518683506` on issue #3245 — the operator's addendum that directed this session to reproduce the dispatch failure rather than accept the diagnosis.
 
 ## Open findings
 
-canonical: the acceptance runs and cross-checks in "What was done" (this
-session's own transcript) — none open. The three acceptance checks pass
-live (14 / 18 / exit-0-with-1-pair, matching PR #3251's claims), the
-must-not is satisfied (0 pairs scored per `result.json`'s
-`excluded_from_h2: true`, quoted in "What was done"; 1 pair found with
-manipulation held but explicitly excluded with a reasoned,
-artifact-backed exclusion — no scored-but-hidden pair exists), and every
-quoted citation in the subject record was independently reproduced
-rather than taken on trust.
+1. PR #3251's `docs/issue-3245/reports/experiment-trust+product-discovery-hypothesis-testing+silent-failure-audit-7b04b22b.md` records an incorrect root cause for the dispatch failure (an "environment-wide CLI/hook regression" rather than the launcher's own missing HOME-credential provisioning), reproduced and traced in "Root-cause reproduction" above. Resolution path: whoever owns PR #3251 (or a follow-up) corrects the record's stated cause and fixes `prepare_arms.py` to provision `.claude/.credentials.json` (or an equivalent auth mechanism) into each arm's temporary `HOME` before dispatch, then re-attempts the `01-study-groups` pair — this session's reproduction indicates that fix alone, with no CLI change needed, would very likely let the arms dispatch and reach real task work.
+2. The registered `n>=5` floor is still unmet (0 pairs scored, per `result.json`'s `excluded_from_h2: true` quoted in "What was done") — unchanged from the subject record, but for the corrected reason in finding 1, not the one recorded.
 
 ## Next steps
 
@@ -194,15 +286,13 @@ acceptance: `python3 -m pytest tests/test_consumer_path_trust_root.py -q` (in `/
 ```
 18 passed in 1.45s
 ```
-No further action from this verification session on the acceptance
-checks — all three ran live and matched PR #3251's claims (see "What was
-done" for the third). `loop_state` is set to `complete` on that basis.
-Substantively, R007 itself remains unanswered: `result.json`'s own
-`excluded_from_h2: true` (quoted in "What was done") records 0 pairs
-scored this run. The next actionable step belongs to whoever can address
-the CLI/hook-firing regression PR #3251 surfaced (its open finding 1),
-which blocks every `spawn.py --skills` dispatch on this machine, not
-only this measurement.
+No further action from this verification session on the mechanical
+acceptance checks — all three ran live and matched PR #3251's claims.
+`loop_state` is set to `complete` on that basis; this session's own scope
+was verification, not fixing PR #3251's launcher. The next actionable
+step belongs to whoever can amend PR #3251 (or file a follow-up) per
+open finding 1: provision auth into the isolated arm `HOME`s and
+re-attempt the pair.
 
 ## Skill verdicts
 
