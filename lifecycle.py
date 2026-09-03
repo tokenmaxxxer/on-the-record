@@ -166,18 +166,20 @@ def _remediation_merge_sweep(root: Path, issue: int) -> int:
 
 
 RESPAWN_STATE = ROOT / "runs" / "respawn_state.json"
-RESPAWN_MAX_ATTEMPTS = 2
-# 이슈 #2969: 워치독 한 틱의 `crashed` 판정 하나만으로 재스폰을 걸지 않는다
-# — 두 세션이 단일 verdict 를 믿었다가 오판으로 죽은 사례가 실측됐다.
-# `_auto_respawn_check()` 가 연속 확인 횟수를 이 값까지 채워야 실제
-# `_respawn_or_cap()` 을 태운다.
+# Automatic respawn was removed (2026-09-03). These two names survive only
+# because `spawn.py` re-exports them and out-of-tree callers may still read
+# them; nothing in this repository branches on their values any more. They
+# are deliberately 0 rather than 2 and 8, so that anything still consulting
+# them as a retry budget gets "no retries", not a stale allowance.
+RESPAWN_MAX_ATTEMPTS = 0
+RESPAWN_ABSOLUTE_MAX = 0
+# Kept because `_auto_respawn_check()` still requires two consecutive
+# `crashed` verdicts before it reports one (issue #2969): a single verdict
+# snapshot was measured misjudging live sessions as dead, and that is a
+# reporting-accuracy guard, independent of whether anything is relaunched.
 RESPAWN_CONSECUTIVE_CONFIRMATIONS = 2
-# 이슈 #678: no-progress 스트릭이 매 재스폰마다 진행을 인정해 리셋되더라도,
-# 토큰 비용 백스톱으로 전체 재스폰 횟수에 독립적인 절대 상한을 둔다 —
-# 진짜 진행 중인 작업(스트릭 리셋)을 방해하지 않을 만큼 넉넉히, 그러나
-# 무한하지 않게: RESPAWN_MAX_ATTEMPTS 의 4배.
-RESPAWN_ABSOLUTE_MAX = RESPAWN_MAX_ATTEMPTS * 4
-_CRASH_COMMENT_MARKER = "[on-the-record] {key}: crashed, respawn cap ({cap}) reached"
+_CRASH_COMMENT_MARKER = ("[on-the-record] {key}: crashed — not respawned, "
+                         "needs a human decision")
 _STALL_COMMENT_MARKER = "[on-the-record] {key}: stalled"
 
 
@@ -195,36 +197,41 @@ def _respawn_state_save(d: dict) -> None:
 
 def _post_crash_comment(root: Path, issue: int, key: str, work: str, log: str,
                         trigger: str = "crashed", absolute: bool = False) -> None:
-    """재스폰 상한 도달 시 이슈에 남기는 코멘트. 멱등: 고정 마커 문자열을
-    기존 코멘트에서 먼저 찾는다(`_issue_comments`/`approve_scope` 와 같은
-    read-then-check 패턴) — 워치독을 반복 호출해도 두 번째 코멘트는 없다.
+    """Comment posted when a session is observed dead and NOT relaunched.
 
-    `trigger` (이슈 #247): 어느 경로가 상한을 채웠는지(예:
-    `watchdog-observed-crashed` / `self-triggered-abandoned`) 본문에
-    남긴다 — 마커 문자열 자체는 이슈 #132 부터 쓰던 그대로 둔다. 멱등성
-    키는 트리거 종류와 무관하게 key+상한 하나여야 두 경로가 같은
-    attempt-cap 예산을 공유한다는 프로포절의 결정이 그대로 성립한다.
+    Idempotent: the fixed marker string is looked up among existing
+    comments first (the `_issue_comments`/`approve_scope` read-then-check
+    pattern), so repeated watchdog ticks over the same dead entry leave one
+    comment, not one per tick.
 
-    `absolute` (이슈 #678): no-progress 스트릭 상한(`RESPAWN_MAX_ATTEMPTS`)
-    이 아니라 `RESPAWN_ABSOLUTE_MAX` 총 시도 상한이 찼을 때 True — 마커의
-    `cap` 값 자체가 달라지므로(2 vs `RESPAWN_ABSOLUTE_MAX`) 두 캡은 서로
-    다른 멱등성 키를 쓰고, 어느 쪽이 찼는지가 코멘트 본문에서도 구분된다."""
-    cap = _sp.RESPAWN_ABSOLUTE_MAX if absolute else _sp.RESPAWN_MAX_ATTEMPTS
-    marker = _sp._CRASH_COMMENT_MARKER.format(key=key, cap=cap)
+    Before 2026-09-03 this comment meant "the retry budget is exhausted".
+    There is no retry now, so it means "this session died and nothing will
+    restart it" — which is why the marker text changed. `absolute` is
+    accepted and ignored: it used to select which of two caps had filled,
+    and both caps are gone. It stays in the signature because `spawn.py`
+    re-exports this function and callers outside this repository may still
+    pass it.
+
+    `trigger` (issue #247) still records which path observed the death
+    (`watchdog-observed-crashed` / `self-triggered-abandoned`), so a reader
+    can tell the two apart.
+    """
+    marker = _sp._CRASH_COMMENT_MARKER.format(key=key)
     comments, ok = _sp._issue_comments(root, issue)
     if ok and any(marker in c.get("body", "") for c in comments):
         return
     slug = _sp._repo_slug(root)
     if not slug:
         return
-    cap_label = "absolute total-respawn ceiling" if absolute else "no-progress respawn cap"
     body = (f"{marker}\n\n"
             f"trigger: {trigger}\nworkspace: {work}\nlog: {log}\n\n"
-            f"All {cap} automatic respawns exhausted ({cap_label}) — needs human intervention.")
+            "Automatic respawn was removed — this session will not be "
+            "restarted on its own. The workspace and log above are intact; "
+            "re-run the work deliberately if it is still wanted.")
     r = subprocess.run(["gh", "api", f"repos/{slug}/issues/{issue}/comments",
                     "-f", f"body={body}"], cwd=root, capture_output=True, text=True)
     if r.returncode != 0:
-        print(f"[spawn] 이슈 #{issue} 크래시-캡 코멘트 게시 실패 (사람 개입 필요 경고가 "
+        print(f"[spawn] 이슈 #{issue} 크래시 코멘트 게시 실패 (사람 개입 필요 경고가 "
               f"전달되지 않았다): {r.stderr.strip()}", file=sys.stderr)
 
 
@@ -365,39 +372,26 @@ def _classify_workspace_completion(work: str, skill: str) -> str:
 def _respawn_or_cap(key: str, work: str, issue: int, skill: str, log: str,
                     session_start_ts, state: dict, trigger: str,
                     single_phase: bool) -> None:
-    """공유 재스폰 시퀀스: 원자적 클레임 확인, 상한(`RESPAWN_MAX_ATTEMPTS`)
-    확인, `.task.txt` 를 통한 `_spawn_one()` 재생, 상한 도달 시 캡-코멘트.
+    """Crash observation for one dead session. Records the death, posts the
+    human-intervention comment, and relaunches nothing.
 
-    `single_phase`(이슈 #2574, 필수 인자 — 기본값을 두지 않는다): 죽은
-    세션이 원래 어떤 처분(build-now 인지 two-phase 인지)으로 스폰됐는지
-    호출자가 반드시 밝혀야 한다. 이 값이 안 넘어오면 `_spawn_one()` 의
-    새 기본값(True)에 조용히 올라타 원래 two-phase 였던 세션까지
-    build-now 로 승격시키는, 이 이슈가 고치려는 것과 같은 모양의
-    조용한 갈라짐을 재스폰 경로에 다시 만든다.
+    Automatic respawn was removed on 2026-09-03 (see the block below for
+    the incident and the numbers). The function keeps its name and its
+    signature so that every caller, ledger consumer and test that already
+    speaks in terms of this seam keeps working; `single_phase` and
+    `session_start_ts` are still accepted because callers still know them
+    and the events they gate are still written, but nothing here starts a
+    process any more.
 
-    이슈 #678: `attempts` 는 이제 no-progress *스트릭* 이다 — 직전 재스폰
-    시점에 저장해둔 지문(`_respawn_fingerprint()`)과 지금 지문이 다르면
-    (새 커밋 또는 보드 델타) 진행이 있었다고 보고 스트릭을 0 으로 리셋한
-    뒤 이번 시도를 1 로 센다. 지문이 없으면(최초 재스폰) 비교할 것이
-    없으므로 진행/무진행 어느 쪽으로도 치지 않고 오늘처럼 스트릭을
-    1부터 시작한다. `total_attempts` 는 스트릭과 무관하게 매 재스폰마다
-    증가하는 별도 카운터로, `RESPAWN_ABSOLUTE_MAX` 총 상한과 비교한다 —
-    스트릭이 계속 리셋돼도 무한정 재스폰하지 않게 하는 토큰 비용
-    백스톱(프로포절의 명시적 결정).
+    Two callers share this sequence, as before: the watchdog's `crashed`
+    verdict (`_auto_respawn_check()`, issue #132) and the self-trigger
+    path for abandoned uncommitted work (`_self_trigger_respawn()`, issue
+    #247). Both now report instead of retrying.
 
-    이슈 #132 워치독 `crashed` 경로(`_auto_respawn_check()`)와 이슈 #247
-    self-trigger 경로(`_spawn_one()` 자신이 정상 종료하며 미커밋 작업을
-    감지한 경우, spawn.py `_self_trigger_respawn()`)가 이 시퀀스를
-    그대로 공유한다 — 재스폰 로직을 두 벌 두지 않고, attempt-cap 카운터도
-    `key` 하나로 공유해 두 경로가 같은 예산을 쓴다(프로포절의 명시적
-    결정). `trigger` 는 어느 쪽이 불렀는지 로그/코멘트에 남겨 사람이
-    나중에 구분할 수 있게 한다.
-
-    `session_start_ts` 로 세션마다 다른 클레임 키(`.respawn-claim-{ts}`)를
-    만든다 — 두 트리거가 같은 세션(같은 ts)을 동시에 관측해도, 실제 락은
-    이 원자적 파일 생성 하나뿐이다: O_CREAT|O_EXCL 은 POSIX 에서 프로세스
-    간에도 원자적이라 정확히 하나만 이 파일을 만들 수 있다(실측:
-    warrant-hunter 리포트, 이슈 #132).
+    The issue-state guard below is unchanged and still runs first: a
+    CLOSED subject flags its branch for cleanup and returns without
+    commenting (issue #2068), and a failed `gh` lookup fails open the same
+    way the returned-PR gate does (issue #680).
     """
     events_path = _sp._events_path(work)
     events = []
@@ -409,6 +403,9 @@ def _respawn_or_cap(key: str, work: str, issue: int, skill: str, log: str,
                 continue
             if isinstance(ev, dict):
                 events.append(ev)
+    # Issue #132's per-session claim: one report per dead session, not one
+    # per watchdog tick. The event name stays `respawn-attempt` so existing
+    # readers of these event files keep resolving it.
     already_claimed = any(
         ev.get("type") == "respawn-attempt"
         and isinstance(ev.get("detail"), dict)
@@ -416,22 +413,12 @@ def _respawn_or_cap(key: str, work: str, issue: int, skill: str, log: str,
         for ev in events)
     if already_claimed:
         return
-    prior = state.get(key, {})
-    attempts = prior.get("attempts", 0)
-    total_attempts = prior.get("total_attempts", 0)
-    prev_fingerprint = prior.get("fingerprint")
-    cur_fingerprint = _sp._respawn_fingerprint(work)
-    if prev_fingerprint is not None and cur_fingerprint != prev_fingerprint:
-        attempts = 0
     root = Path(work)
     # Issue #2068: level-triggered guard — re-read the subject issue's
-    # state at act time, before any respawn or cap-comment side effect.
-    # CLOSED => never respawn (7 stale respawns in one night came from this
-    # path trusting branch existence alone); flag the branch for cleanup
-    # instead. A failed gh lookup fails open — same convention as the
-    # returned-PR gate (issue #680): a broken gh must not silently strand a
-    # crashed-but-legitimate session, and fail-closed here would trade a
-    # noise bug for an observation-loss bug.
+    # state at act time, before any side effect. CLOSED => flag the branch
+    # for cleanup and say nothing else. A failed gh lookup fails open —
+    # same convention as the returned-PR gate (issue #680): a broken gh
+    # must not silently strand a crashed session's report.
     issue_state, state_ok = _sp._subject_issue_state(root, issue)
     if not state_ok:
         print(f"[respawn] {key}: issue-state lookup failed — failing open "
@@ -442,49 +429,42 @@ def _respawn_or_cap(key: str, work: str, issue: int, skill: str, log: str,
         _sp._flag_stale_returned_branch(issue, skill, f"issue-{issue}/{skill}",
                                     source="respawn")
         return
-    if total_attempts >= _sp.RESPAWN_ABSOLUTE_MAX:
-        _sp._post_crash_comment(root, issue, key, work, log, trigger, absolute=True)
-        return
-    if attempts >= _sp.RESPAWN_MAX_ATTEMPTS:
-        _sp._post_crash_comment(root, issue, key, work, log, trigger)
-        return
-    claim_path = Path(str(work) + f".respawn-claim-{session_start_ts}")
-    try:
-        fd = os.open(str(claim_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-        os.close(fd)
-    except FileExistsError:
-        return
-    task_path = Path(str(work) + ".task.txt")
-    if not task_path.exists():
-        print(f"[respawn] {key}: {trigger} 인데 {task_path} 가 없어 재스폰 불가 "
-              f"— 사람이 직접 재스폰해야 한다", file=sys.stderr)
-        return
-    task = task_path.read_text(encoding="utf-8")
-    # Issue #2068 requirement 2: re-read the task from the CURRENT issue at
-    # respawn time — the stored `.task.txt` is the text captured at original
-    # spawn and can be stale (observed producing zero-output sessions that
-    # concluded "nothing to do"). Fetch failure falls back to the stored
-    # text (fail-open, issue #680 convention).
-    current_task = _sp._current_issue_task_text(root, issue)
-    if current_task is not None:
-        task = current_task
-    if _sp._classify_workspace_completion(work, skill) == "finished":
-        task = _sp._CONTINUATION_PREAMBLE + "\n\n" + task
-    attempt_n = attempts + 1
-    total_attempt_n = total_attempts + 1
     _sp._append_event(events_path, "respawn-attempt",
-                  {"session_start_ts": session_start_ts, "attempt": attempt_n})
-    state[key] = {"attempts": attempt_n, "total_attempts": total_attempt_n,
-                  "fingerprint": cur_fingerprint}
-    _sp._respawn_state_save(state)
-    print(f"[respawn] {key}: {trigger} — 재스폰 시도 {attempt_n}/{_sp.RESPAWN_MAX_ATTEMPTS} "
-          f"(총 {total_attempt_n}/{_sp.RESPAWN_ABSOLUTE_MAX})",
-          file=sys.stderr)
-    # 이슈 #2574 disposition: 고정값 아님, 상속 — 두 호출부(watchdog-
-    # observed-crashed / self-triggered) 가 각자 원래 스폰의 처분을
-    # 알아내 넘긴 값을 여기서 그대로 쓴다.
-    _sp._spawn_one(work, skill, task, unattended=True, issue=issue, bounded=True,
-                  single_phase=single_phase)
+                  {"session_start_ts": session_start_ts, "attempt": 1,
+                   "respawned": False})
+    # Respawn removal: this sequence no longer relaunches anything. It
+    # observes that a session died, records that fact, and posts the
+    # human-intervention comment that the attempt cap used to post only
+    # after exhausting its retries. Whether the work runs again is an
+    # orchestrator judgment, exactly as `stalled` already was.
+    #
+    # Why the retry went away rather than getting its cap repaired: on
+    # 2026-09-03 one session on issue #3245 became 90 sessions in about
+    # twenty minutes, exhausted the account's GitHub API budget, and could
+    # not be stopped from inside the tool -- `spawn.py kill` removes the
+    # roster entry, but the kill itself reads as a crash, which is this
+    # path's own trigger. `runs/respawn_state.json` from that machine also
+    # shows the cap was not holding: 90 of its 93 keys came from that one
+    # incident, and 83 of the 93 recorded no attempt count at all, because
+    # since issue #2432 the roster key carries a per-lease disambiguator
+    # and the respawn call did not pass the original session's
+    # disambiguator through, so most respawns minted a fresh key and a
+    # fresh budget.
+    #
+    # Repairing the key would have restored a cap on a feature with no
+    # evidence of ever helping: outside that incident the same state file
+    # held three keys in total, all from the same night. Measured cost,
+    # unevidenced benefit -- so the retry is gone and the observation
+    # stays. `_post_crash_comment()` is unchanged and still idempotent, so
+    # repeated watchdog ticks over the same dead entry leave one comment.
+    _sp._post_crash_comment(root, issue, key, work, log, trigger)
+    _sp.ledger_write({
+        "event": "crash_observed_no_respawn",
+        "issue": issue, "skill": skill, "key": key,
+        "trigger": trigger, "work": str(work), "log": str(log),
+        "ts": int(time.time())})
+    print(f"[respawn] {key}: {trigger} — 재스폰하지 않는다(자동 재스폰 제거). "
+          f"워크스페이스와 로그는 남아 있다: {work}", file=sys.stderr)
 
 
 def _subject_has_deliverable(root: Path, subject: str) -> dict | None:
@@ -689,8 +669,12 @@ def roster_kill(issue: int, skill: str) -> int:
     pid = e.get("pid", 0)
     if _sp._alive(pid):
         os.kill(pid, 15)
+        # Respawn removal (2026-09-03): this line used to promise "재스폰이
+        # 이어받는다". It was true, and it was the reason a kill could not
+        # stop a runaway — the kill itself read as a crash and triggered the
+        # next respawn. Nothing takes over now, and the message says so.
         print(f"종료 신호를 보냈다: {key} (pid {pid}). 워크스페이스와 라이브 "
-              f"로그는 남는다 — 재스폰이 이어받는다.")
+              f"로그는 남는다 — 자동 재스폰은 없다, 다시 돌리려면 직접 스폰하라.")
     else:
         print(f"이미 죽어 있다: {key}")
     _sp.roster_remove(key)

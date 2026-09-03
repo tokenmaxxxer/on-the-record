@@ -13,7 +13,7 @@
 #
 # issue #922 phase 2: the due branch no longer launches the watchdog
 # detached (nohup ... &) and echoes a static "poll tick: due, watchdog
-# armed" line. Instead it runs `spawn.py watchdog --auto-respawn` in the
+# armed" line. Instead it runs `spawn.py watchdog` in the
 # FOREGROUND, capturing its combined stdout+stderr, and echoes that
 # captured text verbatim as this tick's own stdout — so the Monitor
 # notification channel surfaces roster_watchdog()'s already-computed
@@ -506,7 +506,7 @@ while true; do
   due_out="$(python3 "${CHECKOUT}/spawn.py" poll-due 2>&1 >/dev/null)"
   due_rc=$?
   if [ "${due_rc}" -eq 0 ]; then
-    report="$(python3 "${CHECKOUT}/spawn.py" watchdog --auto-respawn 2>&1)"
+    report="$(python3 "${CHECKOUT}/spawn.py" watchdog 2>&1)"
     watchdog_rc=$?
     _poll_watchdog_log_append "${report}"
     if [ -n "${report}" ]; then

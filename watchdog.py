@@ -2210,7 +2210,12 @@ def roster_watchdog(auto_respawn: bool = False, all_scope: bool = False,
             print("이상 신호 없음")
         return anomaly_count
     state = _sp._watchdog_state_load()
-    respawn_state = _sp._respawn_state_load() if auto_respawn else {}
+    # Respawn removal (2026-09-03): dead-entry observation is now
+    # unconditional. `auto_respawn` used to gate both the scan and the
+    # relaunch; the relaunch is gone, and gating the *scan* behind a flag
+    # is what made "a session died" invisible whenever the flag was off.
+    # Observing a death is never the destructive part.
+    respawn_state = _sp._respawn_state_load()
     issue_skill_key = lambda e: (e.get("issue"), e.get("skill"))
     # Issue #2103: one shared branch->PR index per poll tick, built lazily
     # from the cached board snapshot (delta read: 1 API call, usually) the
@@ -2401,8 +2406,7 @@ def roster_watchdog(auto_respawn: bool = False, all_scope: bool = False,
                     if pr_number is not None and _sp._maybe_resume_for_ready_pr(key, e, pr_number):
                         print(f"[resume] {key}: PR #{pr_number} ready — "
                               f"resumed session {e.get('session_id')}")
-            if auto_respawn:
-                _sp._auto_respawn_check(key, e, respawn_state)
+            _sp._auto_respawn_check(key, e, respawn_state)
             continue
         # 이슈 #2215: harness-decided, unconditional — 이 라이브 엔트리의
         # 워크스페이스를 매 폴 틱(POLL_INTERVAL_SEC)마다 체크포인트한다.

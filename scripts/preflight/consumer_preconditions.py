@@ -186,7 +186,7 @@ def check_remote_push_access() -> tuple[bool, str]:
 
 def check_workspace_disk_headroom() -> tuple[bool, str]:
     """Mirrors spawn.py's `_spawn_capacity_check(path)` gate (spawn.py:729-764,
-    called at spawn.py:3229 before every workspace clone): observes the same
+    called at spawn.py:3332 before every workspace clone): observes the same
     `shutil.disk_usage()`/`os.statvfs()` headroom under the same default
     thresholds and the same env-var overrides, without creating, deleting, or
     cloning anything itself. `os.statvfs` is POSIX (present on both macOS and
@@ -246,14 +246,14 @@ CHECKS = [
             "reporting a supported sys.platform."
         ),
         "source": (
-            "spawn.py:4891 (os.fork()/os.setsid() drives _spawn_one(), the "
+            "spawn.py:4893 (os.fork()/os.setsid() drives _spawn_one(), the "
             "real role-session spawn path); the same fork+setsid+dup2 "
-            "pattern also appears at spawn.py:2738 (background "
+            "pattern also appears at spawn.py:2740 (background "
             "validity-consult, a different feature that mirrors it)"
         ),
         "line_anchors": [
-            ("spawn.py", 4891, "os.fork()"),
-            ("spawn.py", 2738, "os.fork()"),
+            ("spawn.py", 4893, "os.fork()"),
+            ("spawn.py", 2740, "os.fork()"),
         ],
     },
     {
@@ -262,12 +262,12 @@ CHECKS = [
         "remedy": "Install the Claude Code CLI so `claude` resolves on PATH.",
         "source": (
             'pipeline.py:661 (spawn_cmd builds cmd = ["claude", "-p", ...]); '
-            "spawn.py:5013 (_spawn_one() is what actually execs it, via "
+            "spawn.py:5015 (_spawn_one() is what actually execs it, via "
             "subprocess.Popen(cmd, ...))"
         ),
         "line_anchors": [
             ("pipeline.py", 661, 'cmd = ["claude"'),
-            ("spawn.py", 5013, "subprocess.Popen("),
+            ("spawn.py", 5015, "subprocess.Popen("),
         ],
     },
     {
@@ -375,14 +375,14 @@ CHECKS = [
             "spawn.py:746, sys.exit() at spawn.py:751 when free bytes fall "
             "below MIN_FREE_BYTES_DEFAULT, os.statvfs() inode check follows "
             "and sys.exit()s again if free inodes fall below "
-            "MIN_FREE_INODES_DEFAULT) -- called at spawn.py:3330, before "
+            "MIN_FREE_INODES_DEFAULT) -- called at spawn.py:3332, before "
             "every workspace clone attempt"
         ),
         "line_anchors": [
             ("spawn.py", 735, "def _spawn_capacity_check"),
             ("spawn.py", 746, "shutil.disk_usage"),
             ("spawn.py", 751, "sys.exit("),
-            ("spawn.py", 3330, "_spawn_capacity_check(work)"),
+            ("spawn.py", 3332, "_spawn_capacity_check(work)"),
         ],
     },
 ]

@@ -2418,8 +2418,10 @@ def main() -> int:
                          "남기면(또는 인덱스가 비어 있으면) 영원히 블록하지 "
                          "않고 리턴한다 (--all 하고만 쓴다, 이슈 #559)")
     ap.add_argument("--auto-respawn", action="store_true",
-                    help="watchdog: crashed 세션에 한해 최대 2회 자동 재스폰, "
-                         "상한 도달 시 이슈 코멘트 (기본 off, 관찰-전용 유지)")
+                    help="(폐지됨, 무시된다) 자동 재스폰은 2026-09-03 에 "
+                         "제거됐다 — crashed 세션은 언제나 보고만 하고 "
+                         "다시 띄우지 않는다. 플래그는 기존 호출부를 깨지 "
+                         "않으려고 받아만 준다")
     ap.add_argument("--unreported", action="store_true",
                     help="reconcile: roster 대신 workspace 인덱스를 훑어, "
                          "session-end(normal) 인데 아직 [watch] 코멘트가 없는 "
