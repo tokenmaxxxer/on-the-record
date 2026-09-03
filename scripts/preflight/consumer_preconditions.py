@@ -246,14 +246,14 @@ CHECKS = [
             "reporting a supported sys.platform."
         ),
         "source": (
-            "spawn.py:4704 (os.fork()/os.setsid() drives _spawn_one(), the "
+            "spawn.py:4708 (os.fork()/os.setsid() drives _spawn_one(), the "
             "real role-session spawn path); the same fork+setsid+dup2 "
-            "pattern also appears at spawn.py:2702 (background "
+            "pattern also appears at spawn.py:2706 (background "
             "validity-consult, a different feature that mirrors it)"
         ),
         "line_anchors": [
-            ("spawn.py", 4704, "os.fork()"),
-            ("spawn.py", 2702, "os.fork()"),
+            ("spawn.py", 4708, "os.fork()"),
+            ("spawn.py", 2706, "os.fork()"),
         ],
     },
     {
@@ -262,12 +262,12 @@ CHECKS = [
         "remedy": "Install the Claude Code CLI so `claude` resolves on PATH.",
         "source": (
             'pipeline.py:661 (spawn_cmd builds cmd = ["claude", "-p", ...]); '
-            "spawn.py:4761 (_spawn_one() is what actually execs it, via "
+            "spawn.py:4765 (_spawn_one() is what actually execs it, via "
             "subprocess.Popen(cmd, ...))"
         ),
         "line_anchors": [
             ("pipeline.py", 661, 'cmd = ["claude"'),
-            ("spawn.py", 4761, "subprocess.Popen("),
+            ("spawn.py", 4765, "subprocess.Popen("),
         ],
     },
     {
@@ -309,9 +309,9 @@ CHECKS = [
             "$TOKENMAXXXER_RULEBOOKS/skill-repository) or set "
             "MUSTER_SKILL_REPO=<checkout>/skills."
         ),
-        "source": "skills.py:96-112 (_skill_repo_root: MUSTER_SKILL_REPO env > sibling clone > managed clone)",
+        "source": "skills.py:182-197 (_skill_repo_root: MUSTER_SKILL_REPO env > sibling clone > managed clone)",
         "line_anchors": [
-            ("skills.py", 96, "def _skill_repo_root"),
+            ("skills.py", 182, "def _skill_repo_root"),
         ],
     },
     {
@@ -322,9 +322,9 @@ CHECKS = [
             "spawned session should resolve locally -- no plugin install "
             "populates this directory."
         ),
-        "source": "skills.py:338 (tier3 = _sp._local_skill_dirs(home / \".claude\" / \"skills\"))",
+        "source": "skills.py:468 (tier3 = _sp._local_skill_dirs(home / \".claude\" / \"skills\"))",
         "line_anchors": [
-            ("skills.py", 338, '_local_skill_dirs(home / ".claude" / "skills")'),
+            ("skills.py", 468, '_local_skill_dirs(home / ".claude" / "skills")'),
         ],
     },
     {
@@ -371,18 +371,18 @@ CHECKS = [
             "MUSTER_SKIP_SPACE_CHECK=1."
         ),
         "source": (
-            "spawn.py:733-767 (_spawn_capacity_check: shutil.disk_usage() at "
-            "spawn.py:744, sys.exit() at spawn.py:749 when free bytes fall "
+            "spawn.py:735-768 (_spawn_capacity_check: shutil.disk_usage() at "
+            "spawn.py:746, sys.exit() at spawn.py:751 when free bytes fall "
             "below MIN_FREE_BYTES_DEFAULT, os.statvfs() inode check follows "
             "and sys.exit()s again if free inodes fall below "
-            "MIN_FREE_INODES_DEFAULT) -- called at spawn.py:3294, before "
+            "MIN_FREE_INODES_DEFAULT) -- called at spawn.py:3298, before "
             "every workspace clone attempt"
         ),
         "line_anchors": [
-            ("spawn.py", 733, "def _spawn_capacity_check"),
-            ("spawn.py", 744, "shutil.disk_usage"),
-            ("spawn.py", 749, "sys.exit("),
-            ("spawn.py", 3294, "_spawn_capacity_check(work)"),
+            ("spawn.py", 735, "def _spawn_capacity_check"),
+            ("spawn.py", 746, "shutil.disk_usage"),
+            ("spawn.py", 751, "sys.exit("),
+            ("spawn.py", 3298, "_spawn_capacity_check(work)"),
         ],
     },
 ]

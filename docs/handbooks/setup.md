@@ -72,23 +72,37 @@ MUSTER_AGENT_GH_TOKEN=<pat>` — 또는 GitHub App)을 두면 사람/에이전�
 `on-the-record/runs/rulebooks/` 아래에 자동으로 받아오고 ff-update 한다
 (로컬 checkout 이 있으면 그쪽이 이긴다 — 개발용 override).
 
-**skill-repository 는 다르다 — 자동 clone 이 없다.** 43개 역할 전부
-가이던스를 skill-repository 에서 받는다(skill-axis 아키텍처, phase-3
-완료). 수동으로 clone 하고 `spawn.py` 가 찾을 위치를 알려줘야 한다, 둘 중
-하나:
-- **형제-clone(권장, zero-config)**: `$TOKENMAXXXER_RULEBOOKS` 옆에
-  clone 한다 — `git clone https://github.com/tokenmaxxxer/skill-repository.git
-  $TOKENMAXXXER_RULEBOOKS/skill-repository`. 이 경로면 `MUSTER_SKILL_REPO`
-  안 정해도 `spawn.py` 가 찾는다.
-- **다른 위치에 clone 했다면**: `export
-  MUSTER_SKILL_REPO=<checkout>/skills` — **checkout 루트가 아니라
-  `skills/` 하위 디렉터리를 가리켜야 한다.** 루트를 가리키면 다른(더
-  헷갈리는) 실패로 fail-closed 된다 — 아래 참고.
+**skill-repository 도 수동 clone 이 필요 없다(이슈 #3231).** 43개 역할
+전부 가이던스를 skill-repository 에서 받는다(skill-axis 아키텍처,
+phase-3 완료). 해석 순서, 먼저 맞는 쪽이 이긴다:
+- **`MUSTER_SKILL_REPO`** 가 설정돼 있으면 그쪽 — **checkout 루트가
+  아니라 `skills/` 하위 디렉터리를 가리켜야 한다.** 루트를 가리키면
+  다른(더 헷갈리는) 실패로 fail-closed 된다 — 아래 참고.
+- **형제-clone**이 `$TOKENMAXXXER_RULEBOOKS/skill-repository` 에 이미
+  있으면 그쪽(수동으로 `git clone
+  https://github.com/tokenmaxxxer/skill-repository.git
+  $TOKENMAXXXER_RULEBOOKS/skill-repository` 해 둬도 여전히 통하고, 아래
+  관리 클론보다 항상 이긴다 — 특정 checkout 을 고정하고 싶을 때 쓴다).
+- **관리 클론**: 위 둘 다 없으면 on-the-record 가 필요해지는 시점에
+  자기 캐시(`runs/rulebooks/skill-repository/`, gitignore 대상, 룰북/
+  tokenmaxxxer-core 가 이미 쓰는 것과 같은 메커니즘)로 직접 받는다.
+  `SessionStart` 훅(`skill-corpus-bootstrap.sh`, `spawn.py ensure-skills`
+  를 부른다)이 이 받기를 세션 시작 시점에 미리 당겨서, 그 세션의 첫
+  `--skills` 스폰이 받아지길 기다리지 않게 한다 — 훅이 안 돌았거나
+  오프라인으로 실패했으면 스폰 안에서도 같은 받기를 그대로 다시
+  시도한다. 어느 경로든 받기 전에 `[skill-repo] skill-repository 를
+  받는 중`을 stderr 에 찍는다 — 절대 조용히 하지 않는다. 받는 도중
+  끊기면(네트워크 끊김, 프로세스 강제 종료) 이 관리 클론은 없거나
+  이전 상태 그대로 남는다, 절반만 받아진 채 "있다"로 읽히지 않는다 —
+  받기는 항상 스크래치 디렉터리로 먼저 하고, 완결성이 확인된 뒤에만
+  그 자리로 원자적으로 바꿔 끼우기 때문이다.
 
-fail-closed 증상, 자가진단용(둘 다 실측 확인):
-- `MUSTER_SKILL_REPO` 도 형제-clone 도 없으면: `--skills: skill-repository
-  체크아웃을 못 찾았다 — MUSTER_SKILL_REPO 나
-  $TOKENMAXXXER_RULEBOOKS/skill-repository 를 확인하라`
+fail-closed 증상, 자가진단용(전부 실측 확인):
+- `MUSTER_SKILL_REPO`, 형제-clone, 관리 클론 받기 셋 다 실패하면(예:
+  기존에 받아둔 관리 클론도 없이 정말 오프라인인 경우): `--skills:
+  skill-repository 체크아웃을 못 찾았다 — MUSTER_SKILL_REPO 나
+  $TOKENMAXXXER_RULEBOOKS/skill-repository 를 확인하고, 관리 클론도
+  시도했지만(네트워크나 기존 클론 없음) 실패했다`
 - `MUSTER_SKILL_REPO` 가 checkout **루트**를 가리키면(`skills/` 가
   아니라): `--skills: 모르는 스킬 <role>-... — 쓸 수 있는 이름: docs,
   skills` — 루트 아래엔 `docs`/`skills` 디렉터리만 있고 매핑된 스킬
@@ -221,24 +235,37 @@ Rulebooks and tokenmaxxxer-core need NO manual clones: spawn fetches and
 ff-updates them under `on-the-record/runs/rulebooks/` automatically (a local
 checkout, if present, wins — that is the development override).
 
-**skill-repository is different — there is no automatic clone.** All 43
-roles resolve their guidance from skill-repository (the skill-axis
-architecture, phase-3 complete). You must clone it manually and tell
-`spawn.py` where to find it, one of two ways:
-- **Sibling clone (recommended, zero-config)**: clone next to
-  `$TOKENMAXXXER_RULEBOOKS` — `git clone
+**skill-repository also needs no manual clone (issue #3231).** All 43 roles
+resolve their guidance from skill-repository (the skill-axis architecture,
+phase-3 complete). Resolution order, first match wins:
+- **`MUSTER_SKILL_REPO`**, if set — **must point at the checkout's
+  `skills/` subdirectory, not the checkout root.** Pointing at the root
+  fails closed with a different (more confusing) error — see below.
+- **A sibling clone** at `$TOKENMAXXXER_RULEBOOKS/skill-repository`, if one
+  already exists (a manual `git clone
   https://github.com/tokenmaxxxer/skill-repository.git
-  $TOKENMAXXXER_RULEBOOKS/skill-repository`. At this path `spawn.py` finds
-  it with no `MUSTER_SKILL_REPO` needed.
-- **Cloned elsewhere**: `export MUSTER_SKILL_REPO=<checkout>/skills` —
-  **this must point at the checkout's `skills/` subdirectory, not the
-  checkout root.** Pointing at the root fails closed with a different
-  (more confusing) error — see below.
+  $TOKENMAXXXER_RULEBOOKS/skill-repository` still works and always wins
+  over the managed clone below — useful for pinning a specific checkout).
+- **A managed clone** on-the-record fetches itself, on first need, into
+  its own cache (`runs/rulebooks/skill-repository/`, gitignored, the same
+  mechanism rulebooks/tokenmaxxxer-core already use). A `SessionStart`
+  hook (`skill-corpus-bootstrap.sh`, wrapping `spawn.py ensure-skills`)
+  triggers this fetch proactively so the very first `--skills` spawn of a
+  session doesn't have to wait for it; the same fetch also runs lazily
+  inside a spawn if the hook didn't run or failed offline. Either way it
+  prints `[skill-repo] skill-repository 를 받는 중` to stderr before
+  fetching — never silent. An interrupted fetch (network drop, process
+  kill) leaves this managed clone absent or unchanged, never a partial
+  corpus that reads as present, because the fetch lands in a scratch
+  directory first and is only swapped into place after a verified-complete
+  clone.
 
-Fail-closed symptoms, for self-diagnosis (both confirmed live):
-- Neither `MUSTER_SKILL_REPO` nor a sibling clone exists: `--skills:
+Fail-closed symptoms, for self-diagnosis (all confirmed live):
+- `MUSTER_SKILL_REPO`, sibling clone, AND the managed-clone fetch all fail
+  (e.g. genuinely offline with no prior managed clone cached): `--skills:
   skill-repository 체크아웃을 못 찾았다 — MUSTER_SKILL_REPO 나
-  $TOKENMAXXXER_RULEBOOKS/skill-repository 를 확인하라`
+  $TOKENMAXXXER_RULEBOOKS/skill-repository 를 확인하고, 관리 클론도
+  시도했지만(네트워크나 기존 클론 없음) 실패했다`
 - `MUSTER_SKILL_REPO` points at the checkout **root** (not `skills/`):
   `--skills: 모르는 스킬 <role>-... — 쓸 수 있는 이름: docs, skills` —
   only `docs`/`skills` directories exist directly under the root, so the

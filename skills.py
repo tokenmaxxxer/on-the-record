@@ -19,6 +19,7 @@ import hashlib
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import time
@@ -49,6 +50,32 @@ def _skill_repo_valid(d: Path) -> bool:
     return any(p.is_dir() and not p.name.startswith(".") for p in d.iterdir())
 
 
+def _skill_repo_git_env() -> dict[str, str]:
+    """이슈 #3231 round-3 residual-risk fix: `_skill_repo_managed_root()`가
+    SessionStart 훅(`skill-corpus-bootstrap.sh` -> `spawn.py ensure-skills`)
+    에서 도는 clone/pull 두 `_run_net()` 호출에 얹을 env.
+
+    round-2 독립검증(PR #3247, `docs/issue-3231/reports/adversarial-review+
+    silent-failure-audit+test-depth-audit-88bb8a1f.md`)이 실제 pty +
+    자격증명을 요구하는 로컬 `401` 서버로 재현: env 없이 돌면 git 이
+    `Username for '...': ` 에서 그대로 블록한다 — `_run_net()`의
+    `timeout=CLONE_TIMEOUT`/`NETWORK_TIMEOUT` 이 결국은 막아 fail-closed
+    로 끝나지만(무한정 걸리지는 않는다), 그 사이 SessionStart 자체가 최대
+    180초 지연된다. 이 저장소의 다른 git 네트워크 호출 지점
+    (`plumbing.py:364-390` `_git_env()`, `relay.py`/`pipeline.py`가 이미
+    사용)이 정확히 이 위험에 쓰는 그 두 키를 그대로 재사용한다 — 새 관례를
+    만들지 않는다.
+
+    `_git_env()` 자신과 달리 `GH_TOKEN` 유무로 게이팅하지 않는다:
+    `_git_env()`는 push 권한이 필요한 오케스트레이터 자신의 fetch/push용이라
+    토큰이 없으면 `None`을 돌려 사용자의 다른 자격증명 경로(ssh-agent,
+    osxkeychain)를 막지 않으려 한다. 이 호출 지점은 익명 읽기 전용 clone/pull
+    (공개 레포 `skill-repository`, push 없음)이라 토큰이 있든 없든 대화형
+    프롬프트를 막아야 한다 — 게이팅하면 정확히 이 함수가 고치려는 그
+    (토큰 없는) 경우에 가드가 빠진다."""
+    return {**os.environ, "GIT_TERMINAL_PROMPT": "0", "GIT_ASKPASS": "true"}
+
+
 def _skill_repo_managed_root() -> Path | None:
     """관리 클론(이슈 #1789): env 도 형제 체크아웃도 없을 때 on-the-record 가
     직접 `https://github.com/tokenmaxxxer/skill-repository` 를 관리 영역에
@@ -71,23 +98,82 @@ def _skill_repo_managed_root() -> Path | None:
         skills_dir = d / "skills"
         if _sp._skill_repo_valid(skills_dir):
             if not _sp._pull_is_fresh(d):
-                _sp._run_net(["git", "-C", str(d), "pull", "-q", "--ff-only"],
-                         "[skill-repo] pull")
-                _sp._mark_pulled(d)
+                # silent-failure-audit round 2 (issue #3231): `_run_net`
+                # itself deliberately `sys.exit()`s on a real
+                # `TimeoutExpired` (plumbing.py, issue #285 P5 -- correct
+                # for its orchestrator callers, which must halt). This
+                # function's own contract is the opposite: best-effort,
+                # never sys.exit, always return -- a slow-but-alive
+                # network on a refresh pull must fall back to the
+                # already-valid corpus below, not crash the caller.
+                try:
+                    _sp._run_net(["git", "-C", str(d), "pull", "-q", "--ff-only"],
+                             "[skill-repo] pull", env=_sp._skill_repo_git_env())
+                    _sp._mark_pulled(d)
+                except SystemExit as exc:
+                    print(f"[skill-repo] pull failed: {exc}", file=sys.stderr)
             # 이슈 #2616: core_root() 와 완전히 같은 TTL-pull 패턴(같은
             # _pull_is_fresh/_run_net/_mark_pulled) 을 쓰는 관리 클론이라
             # 같은 결함(TTL 창 안에서 실제 stale 여부와 무관하게 "현재"로
             # 보임)을 그대로 물려받는다 — 같은 보고 레이어를 그대로 재사용.
             _sp._report_managed_clone_staleness(d, "skill-repo")
             return skills_dir
+        # 이슈 #3231 must-not: `git clone` 을 최종 경로 `d` 에 바로 걸면,
+        # 중간에 죽은 프로세스가 `d` 를 "일부만 받아진 채" 남기고 그 상태가
+        # `_skill_repo_valid()` 를 우연히 통과할 수 있다(체크아웃이 skill
+        # 디렉터리 몇 개를 만든 시점과 죽는 시점 사이) — 그러면 이후의
+        # 모든 해석이 불완전한 corpus 를 "있다"고 조용히 믿는다. 그래서
+        # clone 은 `d` 옆의 스크래치 디렉터리로 받고, 유효성 확인을 통과한
+        # 뒤에만 `os.replace()` 로 `d` 자리에 원자적으로 바꿔 끼운다 — 죽으면
+        # 스크래치만 지저분해지고 `d` 는 손대지 않은 채(대개 부재) 남아
+        # 계속 unsatisfied 로 읽힌다.
+        for stale in d.parent.glob(d.name + ".tmp-*"):
+            shutil.rmtree(stale, ignore_errors=True)
+        tmp_dir = d.parent / f"{d.name}.tmp-{os.getpid()}-{int(time.time() * 1e6)}"
         try:
             print("[skill-repo] skill-repository 를 받는 중", file=sys.stderr)
-            _sp._run_net(["git", "clone", "-q",
+            result = _sp._run_net(["git", "clone", "-q",
                      "https://github.com/tokenmaxxxer/skill-repository.git",
-                     str(d)], "[skill-repo] clone", timeout=_sp.CLONE_TIMEOUT)
-            _sp._mark_pulled(d)
-        except OSError:
-            pass
+                     str(tmp_dir)], "[skill-repo] clone", timeout=_sp.CLONE_TIMEOUT,
+                     env=_sp._skill_repo_git_env())
+            # returncode 도 확인한다 -- 디렉터리 내용만 보면, 네트워크가 체크아웃
+            # 도중(일부 skill 디렉터리는 이미 받아졌지만 전부는 아닌 시점)
+            # 끊겨 git 이 스스로 0이 아닌 채 종료해도 "그 몇 개는 진짜 있으니
+            # valid" 로 오판할 수 있다. 종료 코드가 0일 때만 그 스크래치를
+            # 신뢰한다 -- 두 신호(종료 코드 + 실제 내용) 를 같이 요구해야
+            # "일부만 받아진 채 있다 코드로는 성공"과 "일부만 받아진 채 있다
+            # 코드도 실패"를 구별하지 않고 둘 다 거른다.
+            if result.returncode == 0 and _sp._skill_repo_valid(tmp_dir / "skills"):
+                if d.exists():
+                    shutil.rmtree(d, ignore_errors=True)
+                os.replace(str(tmp_dir), str(d))
+                _sp._mark_pulled(d)
+        except (OSError, SystemExit) as exc:
+            # silent-failure-audit (issue #3231): a bare `except OSError:
+            # pass` here would discard exactly the detail a stuck fetch
+            # needs to be diagnosable -- git missing, `runs/` read-only,
+            # disk full during os.replace() all degrade to the identical
+            # unhelpful "not fetched yet" message downstream in
+            # ensure_skill_corpus_cli() otherwise, forever, with nothing
+            # distinguishing a transient network hiccup from a permanent
+            # local misconfiguration.
+            #
+            # silent-failure-audit round 2 (issue #3231): `SystemExit` is
+            # added here alongside `OSError` because `_run_net` (called
+            # just above with `timeout=CLONE_TIMEOUT`) itself deliberately
+            # `sys.exit()`s on a real `TimeoutExpired` -- correct for its
+            # orchestrator callers (plumbing.py, issue #285 P5), but this
+            # function's own contract (and `ensure_skill_corpus_cli()`'s,
+            # which calls it transitively) is best-effort: never raise,
+            # always report and return. Without this clause a slow-but-
+            # alive network (a real timeout, not a fast refusal) escaped
+            # as an uncaught `SystemExit` and killed the whole
+            # `spawn.py ensure-skills` process -- reproduced live in
+            # PR #3238's verification record, section 5.
+            print(f"[skill-repo] fetch failed: {type(exc).__name__}: {exc}",
+                  file=sys.stderr)
+        finally:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
         if _sp._skill_repo_valid(skills_dir):
             return skills_dir
     return None
@@ -208,6 +294,50 @@ def _installed_plugin_skill_dirs() -> dict[str, list[tuple[str, Path, str]]]:
                     index.setdefault(skill_dir.name, []).append(
                         (str(qualifier), skill_dir, str(version)))
     return index
+
+
+def ensure_skill_corpus_cli() -> int:
+    """`spawn.py ensure-skills` -- 이슈 #3231. `--skills`/`--skill` 이 실제로
+    스폰을 시도하기 전에, 이 세션의 SessionStart 훅에서 한 번 미리 불러
+    corpus 를 "필요해지는 시점"이 아니라 "세션이 뜨는 시점"으로 당긴다
+    (tier: on-first-need-with-notice — 자동으로 clone/pull 하되 매번
+    무엇을 하는지 stderr 에 알린다, must-not: 조용히 하지 않는다).
+
+    두 가지를 순서대로 한다, 각각 실패해도 나머지를 막지 않는다(best-effort,
+    항상 0 을 돌려준다 — SessionStart 훅은 세션을 막으면 안 된다):
+    1. `~/.claude/skills` 를 없으면 만든다(내용은 안 채운다 — 그건 사용자
+       로컬 오버라이드 tier 라 이 스크립트가 대신 채울 데이터가 없다;
+       존재 여부만이 skills.py:338 이 실제로 보는 것이다). 빈 디렉터리
+       생성은 되돌리기 쉽고(rmdir) 아무 내용도 안 쓰므로 자동으로 해도
+       안전하다 — must-not 이 겨냥하는 "몰래 컨텐츠를 심는다"에 해당하지
+       않는다.
+    2. `_skill_repo_root()` 를 불러 skill-repository 관리 클론을 필요하면
+       받는다 — 이미 `_skill_repo_managed_root()` 가 하는 일 그대로, 여기서
+       새 경로를 만들지 않는다. 이 함수가 하는 일은 그 호출을 **언제**
+       하느냐를 첫 실제 `--skills` 스폰에서 세션 시작으로 당기는 것뿐이다.
+    """
+    try:
+        home_skills = Path.home() / ".claude" / "skills"
+        if not home_skills.is_dir():
+            home_skills.mkdir(parents=True, exist_ok=True)
+            print(f"[ensure-skills] {home_skills} 를 만들었다 (로컬 스킬 오버라이드용, 내용은 비어 있다)",
+                  file=sys.stderr)
+    except OSError as exc:
+        print(f"[ensure-skills] {Path.home() / '.claude' / 'skills'} 를 만들지 못했다: "
+              f"{type(exc).__name__}: {exc}", file=sys.stderr)
+
+    # `_skill_repo_root()` 자체는 sys.exit 하지 않는다(그건 `resolved_skill_dirs()`
+    # 가 실제 스킬 이름을 요청받았을 때만 하는 fail-closed) -- 못 받으면 그냥
+    # None 을 돌려주고, 다음 실제 --skills 스폰이 다시 시도한다.
+    root = _sp._skill_repo_root()
+    if root is None:
+        print("[ensure-skills] skill-repository corpus 를 아직 못 받았다 -- "
+              "네트워크가 없거나 관리 클론이 실패했다; 다음 --skills 스폰 때 "
+              "다시 시도한다", file=sys.stderr)
+    else:
+        print(f"[ensure-skills] skill-repository corpus 는 {root} 에서 쓸 수 있다",
+              file=sys.stderr)
+    return 0
 
 
 def _local_skill_dirs(root: Path) -> dict[str, Path]:
