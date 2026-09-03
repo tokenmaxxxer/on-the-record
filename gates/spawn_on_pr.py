@@ -1022,6 +1022,35 @@ def spawn_missing_for_pr(root: Path, cwd: str, dry_run: bool = False,
         # 워크스페이스 clone 이어도 스폰 시점 main 을 보게 된다.
         live_base_sha = resolve_live_base(root)
         print(f"[spawn-on-pr] live base sha={live_base_sha or '조회 실패(fail-open)'}")
+    # Charge the respawn ceiling BEFORE spawning, not after.
+    #
+    # This loop used to spawn every session first and only then compute and
+    # save `attempts`. Nothing guarded the gap: if a `_spawn_one()` raised,
+    # or the tick was killed partway, or the process died before reaching
+    # `_save_park_state()`, the sessions existed and the counter did not.
+    # The next tick then read `attempts == 0` again, so `attempts >=
+    # max_respawn_attempts` at :965 was never true and the ceiling never
+    # bound -- observed on a consumer machine as an empty
+    # `runs/spawn_on_pr_parked.json` (3 bytes) beside 488 verification
+    # workspaces for a single issue, growing by SPAWN_CAP every tick.
+    #
+    # Writing the charge first inverts which way the failure leans. A tick
+    # that dies mid-batch now over-counts (it charged for spawns it did not
+    # make) instead of under-counting, and an over-count costs at most a few
+    # verification slots that `clear_ceiling()` can release deliberately,
+    # while an under-count costs an unbounded spawn loop that nothing inside
+    # the tool can stop. `clear_ceiling()` (:826) remains the sanctioned way
+    # back, unchanged.
+    planned_counts: dict[str, int] = {}
+    for subject, _skill, _pr_number, _issue in pairs3:
+        planned_counts[subject] = planned_counts.get(subject, 0) + 1
+    for subject, planned_here in planned_counts.items():
+        pr_number, attempts_before = subject_meta[subject]
+        park_state[subject] = {"blocked": True, "pr_number": pr_number, "parked": False,
+                                "attempts": attempts_before + planned_here,
+                                "repo": repo_slug}
+    if planned_counts:
+        _save_park_state(root, park_state)
     spawned_counts: dict[str, int] = {}
     for subject, skill, pr_number, issue in pairs3:
         # issue #2628: 어느 특정 전문성/스킬도 이름 붙이지 않는다 -- 이
@@ -1048,12 +1077,12 @@ def spawn_missing_for_pr(root: Path, cwd: str, dry_run: bool = False,
         spawn._spawn_one(cwd, skill, task, unattended=True, issue=issue, bounded=True,
                          single_phase=True)
         spawned_counts[subject] = spawned_counts.get(subject, 0) + 1
-    for subject, spawned_here in spawned_counts.items():
-        pr_number, attempts_before = subject_meta[subject]
-        park_state[subject] = {"blocked": True, "pr_number": pr_number, "parked": False,
-                                "attempts": attempts_before + spawned_here,
-                                "repo": repo_slug}
-    _save_park_state(root, park_state)
+    # The charge above already covers every subject in `pairs3`; this second
+    # save only records park state for a tick that planned nothing (so the
+    # block above did not run) and must still persist eviction/backoff edits
+    # made earlier in this function.
+    if not planned_counts:
+        _save_park_state(root, park_state)
     return pairs
 
 

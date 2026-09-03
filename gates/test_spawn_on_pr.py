@@ -736,3 +736,110 @@ def test_truncated_streak_resets_on_recovery_via_production_caller_shape(monkeyp
     assert recovery_line == ""
     assert streak() == 0
     assert out == {}
+
+
+# --- The respawn ceiling must be charged before spawning, not after ------
+#
+# Observed on a consumer machine: `runs/spawn_on_pr_parked.json` was 3
+# bytes (`{}`) beside 488 verification workspaces for one issue, growing by
+# SPAWN_CAP every tick. The sessions were spawned first and `attempts` was
+# computed and saved only after the whole batch; nothing guarded the gap, so
+# a tick that died partway left the sessions behind and the counter at zero.
+# The next tick read zero again, `attempts >= max_respawn_attempts` was
+# never true, and the ceiling never bound.
+#
+# These tests fail against the spawn-then-record order and pass against
+# charge-then-spawn.
+
+def test_ceiling_is_charged_before_the_first_spawn(monkeypatch, tmp_path):
+    """The counter must already be on disk by the time `_spawn_one()` runs
+    for the first time -- that is the whole difference between a ceiling
+    that survives a half-finished tick and one that does not."""
+    recorder, park_path = _wire(
+        monkeypatch, tmp_path, missing={SUBJECT: 1}, pr_number=111, blocked=False)
+
+    seen_at_spawn_time = {}
+
+    def _spy(*a, **k):
+        seen_at_spawn_time["state"] = (json.loads(park_path.read_text())
+                                        if park_path.exists() else None)
+        return recorder.spawn_one(*a, **k)
+
+    monkeypatch.setattr(spawn_on_pr.spawn, "_spawn_one", _spy)
+    _run(tmp_path)
+
+    assert seen_at_spawn_time["state"] is not None, (
+        "no park state existed when the first session was spawned -- a tick "
+        "dying here leaves sessions with no attempt recorded")
+    assert seen_at_spawn_time["state"][KEY]["attempts"] == 1
+
+
+def test_a_tick_that_dies_mid_batch_still_charges_the_attempt(monkeypatch, tmp_path):
+    """The exact production shape: `_spawn_one()` raises partway. The
+    sessions that already started are real and must be paid for."""
+    _recorder, park_path = _wire(
+        monkeypatch, tmp_path, missing={SUBJECT: 1}, pr_number=111, blocked=False)
+
+    def _explode(*a, **k):
+        raise RuntimeError("claude CLI died mid-batch")
+
+    monkeypatch.setattr(spawn_on_pr.spawn, "_spawn_one", _explode)
+    try:
+        _run(tmp_path)
+    except RuntimeError:
+        pass
+
+    assert park_path.exists(), "the dead tick recorded nothing at all"
+    assert json.loads(park_path.read_text())[KEY]["attempts"] == 1
+
+
+def test_repeated_dying_ticks_reach_the_ceiling_instead_of_looping(monkeypatch, tmp_path):
+    """The runaway itself: ticks that keep dying must still converge on the
+    ceiling rather than spawning forever. Four dying ticks exhaust
+    MAX_RESPAWN_ATTEMPTS; the fifth spawns nothing."""
+    spawned_per_tick = []
+    for _ in range(spawn_on_pr.MAX_RESPAWN_ATTEMPTS):
+        recorder, park_path = _wire(
+            monkeypatch, tmp_path, missing={SUBJECT: 1}, pr_number=111, blocked=False)
+
+        def _explode(*a, **k):
+            recorder.spawn_calls.append(a)
+            raise RuntimeError("died mid-batch")
+
+        monkeypatch.setattr(spawn_on_pr.spawn, "_spawn_one", _explode)
+        try:
+            _run(tmp_path)
+        except RuntimeError:
+            pass
+        spawned_per_tick.append(len(recorder.spawn_calls))
+
+    assert spawned_per_tick == [1] * spawn_on_pr.MAX_RESPAWN_ATTEMPTS
+
+    final_recorder, park_path = _wire(
+        monkeypatch, tmp_path, missing={SUBJECT: 1}, pr_number=111, blocked=False)
+    pairs = _run(tmp_path)
+
+    assert final_recorder.spawn_calls == [], (
+        "the ceiling did not bind after "
+        f"{spawn_on_pr.MAX_RESPAWN_ATTEMPTS} charged attempts -- this is the "
+        "unbounded spawn loop")
+    assert pairs == []
+    assert json.loads(park_path.read_text())[KEY]["ceiling_hit"] is True
+
+
+def test_a_tick_that_plans_nothing_still_persists_park_edits(monkeypatch, tmp_path):
+    """Charging early must not drop the save that a no-spawn tick relies on
+    for its eviction/backoff bookkeeping."""
+    recorder, park_path = _wire(
+        monkeypatch, tmp_path, missing={SUBJECT: 1}, pr_number=600, blocked=True)
+    _seed_park_state(park_path, {
+        KEY: {"blocked": True, "pr_number": 500, "parked": False, "attempts": 1},
+    })
+
+    pairs = _run(tmp_path)
+
+    assert pairs == []
+    assert recorder.spawn_calls == []
+    entry = json.loads(park_path.read_text())[KEY]
+    assert entry["parked"] is True
+    assert entry["pr_number"] == 600
