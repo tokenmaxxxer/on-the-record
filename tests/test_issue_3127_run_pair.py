@@ -43,13 +43,22 @@ def _watched_result(arm_name: str, issue: int) -> dict:
             "watch_returncode": 0, "watch_stderr": None}
 
 
-def _fake_invocation(invoked: bool) -> dict:
+def _fake_invocation(invoked: bool, mounted: bool = None) -> dict:
     """H1 re-operationalized 2026-09-02 (issue #3127 consult) --
     collect_skill_invocation() is what these tests now mock to control
-    H1 pass/fail, instead of collect_directive_bytes()."""
-    return {"session_log": "/fake.session.log", "mounted": [],
+    H1 pass/fail, instead of collect_directive_bytes(). `mounted`
+    (issue #3288 round 10) defaults to `invoked` -- the H1 gate now
+    checks mounting, not invocation, so a test that wants "the skill
+    reached this arm at all" true must set mounted=True regardless of
+    whether the fixture also claims invocation."""
+    if mounted is None:
+        mounted = invoked
+    return {"session_log": "/fake.session.log",
+            "mounted": (["product-discovery-hypothesis-preregistration"]
+                        if mounted else []),
             "invoked": invoked, "measured": True,
-            "mounted_but_not_invoked": False, "invoked_but_not_mounted": False,
+            "mounted_but_not_invoked": mounted and not invoked,
+            "invoked_but_not_mounted": invoked and not mounted,
             "reason": None}
 
 
@@ -84,9 +93,17 @@ class RunPairTest(unittest.TestCase):
             def fetcher(plan, issue):
                 return f"deliverable text for issue {issue}, no slug"
 
-            with mock.patch.object(rcp, "collect_skill_invocation") as m_inv:
+            with mock.patch.object(rcp, "collect_skill_invocation") as m_inv, \
+                 mock.patch.object(rcp, "check_h1_content_manipulation") as m_content:
+                # mounted=True for both arms: the mounting precondition
+                # (issue #3288 round 10). Content evidence (this legacy
+                # stub-repo harness carries no manifest to check it
+                # against -- see check_h1_content_manipulation()'s
+                # docstring) is mocked separately; that logic has its own
+                # coverage in test_issue_3127_h1_and_scoring.py.
                 m_inv.side_effect = lambda ws, skill, **kw: \
-                    _fake_invocation(invoked="101" in str(ws))
+                    _fake_invocation(invoked="101" in str(ws), mounted=True)
+                m_content.return_value = {"content_ok": True, "reason": None}
                 result = rcp.run_pair(
                     self.plan, self.pair, on_issue=101, off_issue=102,
                     confirm_real_spawn=True,
@@ -139,12 +156,14 @@ class RunPairTest(unittest.TestCase):
     def test_missing_deliverable_leaves_h2_none_with_reason_not_h1_reason(self):
         with mock.patch.object(rcp, "execute_arm") as m_exec, \
              mock.patch.object(rcp, "arm_workspace_dir") as m_ws, \
-             mock.patch.object(rcp, "collect_skill_invocation") as m_inv:
+             mock.patch.object(rcp, "collect_skill_invocation") as m_inv, \
+             mock.patch.object(rcp, "check_h1_content_manipulation") as m_content:
             m_exec.side_effect = lambda plan, pair, arm, issue, confirm: \
                 _watched_result(arm.name, issue)
             m_ws.side_effect = lambda plan, issue: Path(f"/tmp/ws-{issue}")
             m_inv.side_effect = lambda ws, skill, **kw: \
-                _fake_invocation(invoked="301" in str(ws))
+                _fake_invocation(invoked="301" in str(ws), mounted=True)
+            m_content.return_value = {"content_ok": True, "reason": None}
 
             result = rcp.run_pair(
                 self.plan, self.pair, on_issue=301, off_issue=302,
@@ -229,7 +248,14 @@ class RunPairRealReachabilityTest(unittest.TestCase):
     def test_run_pair_real_flow_reaches_h1_gate_and_blind_scorer(self):
         on_issue, off_issue = 401, 402
         self._make_workspace(on_issue, 500, invoked=True)
-        self._make_workspace(off_issue, 50, invoked=False)
+        # Issue #3288 round 10: the off arm must now also MOUNT the
+        # skill (the decoy design's expected shape) for H1's mounting
+        # precondition to hold -- `invoked=True` here builds a real init
+        # line with the skill mounted, mirroring that. Content evidence
+        # (this legacy stub-repo harness carries no manifest to check it
+        # against) is mocked separately; that logic has its own coverage
+        # in test_issue_3127_h1_and_scoring.py.
+        self._make_workspace(off_issue, 50, invoked=True)
 
         scorer_calls = []
 
@@ -240,7 +266,9 @@ class RunPairRealReachabilityTest(unittest.TestCase):
 
         real_run = subprocess.run
         with mock.patch.object(rcp.subprocess, "run",
-                                side_effect=self._stubbed_subprocess_run(real_run)):
+                                side_effect=self._stubbed_subprocess_run(real_run)), \
+             mock.patch.object(rcp, "check_h1_content_manipulation") as m_content:
+            m_content.return_value = {"content_ok": True, "reason": None}
             result = rcp.run_pair(
                 self.plan, self.pair, on_issue=on_issue, off_issue=off_issue,
                 confirm_real_spawn=True, known_slugs=[self.plan.skill_name],

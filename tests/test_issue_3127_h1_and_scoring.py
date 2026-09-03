@@ -21,6 +21,7 @@ records whether scrubbing changed the score.
 Defect 4 (wall-clock honesty) is added by a later commit to this same
 file.
 """
+import hashlib
 import sys
 import tempfile
 import unittest
@@ -48,6 +49,52 @@ def _init_line(mounted: bool) -> str:
 def _tool_use_line(skill: str) -> str:
     return ('{"type":"assistant","message":{"content":[{"type":"tool_use",'
             f'"name":"Skill","input":{{"skill":"{skill}"}}}}]}}')
+
+
+def _make_arm_manifests(registry_dir: Path, on_matches_real: bool = True,
+                         off_is_placeholder: bool = True,
+                         source_has_body: bool = True) -> tuple[dict, dict]:
+    """Builds the `on_arm_manifest`/`off_arm_manifest` shape
+    `check_h1_content_manipulation()` reads (issue #3288 round 10): a real
+    SKILL.md on disk (the stable "registry" path, never an arm's temporary
+    HOME) plus each arm's `skill_files` entry recording the sha256/size
+    `prepare_arms.py` would have written for what it actually mounted."""
+    source_dir = registry_dir / SKILL_NAME
+    source_dir.mkdir(parents=True, exist_ok=True)
+    source_path = source_dir / "SKILL.md"
+    body = "\n\nReal guidance body, several sentences of it.\n" \
+        if source_has_body else ""
+    real_text = f"---\nname: {SKILL_NAME}\ndescription: real\n---\n{body}"
+    source_path.write_text(real_text, encoding="utf-8")
+    real_bytes = real_text.encode("utf-8")
+    real_hash = hashlib.sha256(real_bytes).hexdigest()
+
+    if on_matches_real:
+        on_hash, on_size = real_hash, len(real_bytes)
+    else:
+        on_hash, on_size = "0" * 64, 4
+
+    if off_is_placeholder:
+        placeholder_text = f"---\nname: {SKILL_NAME}\ndescription: placeholder\n---\n"
+        off_bytes = placeholder_text.encode("utf-8")
+        off_hash, off_size = hashlib.sha256(off_bytes).hexdigest(), len(off_bytes)
+    else:
+        off_hash, off_size = real_hash, len(real_bytes)
+
+    on_arm_manifest = {
+        "arm": "on",
+        "skill_files": [{"path": f"{SKILL_NAME}/SKILL.md",
+                          "sha256": on_hash, "size_bytes": on_size}],
+    }
+    off_arm_manifest = {
+        "arm": "off",
+        "skill_files": [{"path": f"{SKILL_NAME}/SKILL.md",
+                          "sha256": off_hash, "size_bytes": off_size}],
+        "decoy": {"skill_name": SKILL_NAME,
+                  "source_skill_md": str(source_path),
+                  "has_body_guidance": False},
+    }
+    return on_arm_manifest, off_arm_manifest
 
 
 class DiscoverArmBranchTest(unittest.TestCase):
@@ -159,35 +206,68 @@ class ComputeH1ManipulationTest(unittest.TestCase):
                                  encoding="utf-8")
         return ws
 
-    def test_on_invoked_off_did_not_passes(self):
+    def test_both_arms_mounted_and_content_differs_passes(self):
+        """The decoy design's actual shape (round 9 live pair
+        `01-study-groups`): both arms mount AND invoke the same-named
+        skill -- the manipulated variable is the mounted file's content,
+        established here from the manifest, not from which arm invoked."""
+        on_ws = self._make_workspace(
+            "on", b"a" * 5000,
+            session_log_lines=[_init_line(True), _tool_use_line(SKILL_NAME)])
+        off_ws = self._make_workspace(
+            "off", b"a" * 12,
+            session_log_lines=[_init_line(True), _tool_use_line(SKILL_NAME)])
+        on_arm_manifest, off_arm_manifest = _make_arm_manifests(
+            Path(self._tmpdir.name) / "registry")
+        result = rcp.compute_h1_manipulation(
+            on_ws, off_ws, SKILL_NAME,
+            on_arm_manifest=on_arm_manifest, off_arm_manifest=off_arm_manifest)
+        self.assertTrue(result["differs"])
+        self.assertIsNone(result["reason"])
+        self.assertTrue(result["content_manipulation"]["content_ok"])
+        self.assertTrue(result["on_invocation"]["invoked"])
+        self.assertTrue(result["off_invocation"]["invoked"])
+
+    def test_on_arm_not_mounted_fails(self):
+        """Fact 1 (on arm): the on arm never mounted the skill at all --
+        the manipulation's precondition does not hold, regardless of
+        content."""
+        on_ws = self._make_workspace(
+            "on", b"same content twice-over padding",
+            session_log_lines=[_init_line(False)])
+        off_ws = self._make_workspace(
+            "off", b"same content twice-over padding",
+            session_log_lines=[_init_line(True), _tool_use_line(SKILL_NAME)])
+        result = rcp.compute_h1_manipulation(on_ws, off_ws, SKILL_NAME)
+        self.assertFalse(result["differs"])
+        self.assertIn("never mounted", result["reason"])
+
+    def test_off_arm_not_mounted_fails(self):
+        """Fact 1 (off arm), issue #3288 round 10: under the decoy design
+        the off arm is SUPPOSED to mount a same-named decoy at the same
+        path. Its absence means the off arm never received the
+        controlled comparison -- unlike the retired zero-corpus design,
+        this is no longer compatible with H1 passing."""
         on_ws = self._make_workspace(
             "on", b"a" * 5000,
             session_log_lines=[_init_line(True), _tool_use_line(SKILL_NAME)])
         off_ws = self._make_workspace(
             "off", b"a" * 12, session_log_lines=[_init_line(False)])
         result = rcp.compute_h1_manipulation(on_ws, off_ws, SKILL_NAME)
-        self.assertTrue(result["differs"])
-        self.assertIsNone(result["reason"])
-        self.assertTrue(result["on_invocation"]["invoked"])
-        self.assertFalse(result["off_invocation"]["invoked"])
-
-    def test_neither_arm_invoked_flagged_as_manipulation_failure(self):
-        """On arm never actually called the Skill tool even though it was
-        configured to -- H1 must catch this, not silently pass it
-        through to H2."""
-        on_ws = self._make_workspace(
-            "on", b"same content twice-over padding",
-            session_log_lines=[_init_line(True)])
-        off_ws = self._make_workspace(
-            "off", b"same content twice-over padding",
-            session_log_lines=[_init_line(False)])
-        result = rcp.compute_h1_manipulation(on_ws, off_ws, SKILL_NAME)
         self.assertFalse(result["differs"])
-        self.assertIsNotNone(result["reason"])
+        self.assertIn("never mounted", result["reason"])
 
-    def test_both_arms_invoked_is_a_leak_and_fails(self):
-        """Mirror image of issue #3053's retracted zero-mount run: the
-        skills-off arm's isolation leaked and it invoked the skill too."""
+    def test_off_arm_invoking_the_decoy_no_longer_fails_by_itself(self):
+        """Regression test for the exact defect issue #3288 named: the
+        OLD H1 rule failed a pair the instant the off arm's session log
+        recorded a Skill tool_use call, because under the retired
+        zero-corpus design that could only mean a leak. Under the decoy
+        design the off arm mounting and invoking a same-named placeholder
+        is the *expected*, correct-by-design outcome (round 9 live
+        finding on pair `01-study-groups`). Without arm manifests this
+        still can't PASS (no content evidence to check) -- but it must
+        fail for "no manifest supplied", never for "off arm ALSO
+        invoked"."""
         on_ws = self._make_workspace(
             "on", b"a" * 5000,
             session_log_lines=[_init_line(True), _tool_use_line(SKILL_NAME)])
@@ -196,7 +276,8 @@ class ComputeH1ManipulationTest(unittest.TestCase):
             session_log_lines=[_init_line(True), _tool_use_line(SKILL_NAME)])
         result = rcp.compute_h1_manipulation(on_ws, off_ws, SKILL_NAME)
         self.assertFalse(result["differs"])
-        self.assertIn("ALSO recorded", result["reason"])
+        self.assertNotIn("ALSO recorded", result["reason"])
+        self.assertIn("no ", result["reason"])
 
     def test_missing_on_session_log_is_a_failure_not_a_skip(self):
         on_ws = self._make_workspace("on", b"a" * 5000)  # no session log
@@ -263,18 +344,22 @@ class ComputeH1ManipulationTest(unittest.TestCase):
                           str(real_ws.parent /
                               (real_ws.name + ".session.20260902T000000.1.log")))
 
-    def test_missing_off_session_log_is_compatible_with_h1_pass(self):
-        """The skills-off arm never dispatched at all (PR #3172's actual
-        real-run outcome for both registered pairs) -- absence of
-        invocation evidence is itself evidence of non-invocation, so this
-        does not by itself fail the gate."""
+    def test_missing_off_session_log_is_now_a_failure(self):
+        """Issue #3288 round 10: under the retired zero-corpus design a
+        missing off-arm log was compatible with H1 passing (absence of
+        invocation evidence read as evidence of non-invocation). Under
+        the decoy design the off arm is expected to dispatch and mount a
+        real decoy, so a missing log can no longer confirm that -- it is
+        simply unmeasured, and unmeasured must not be credited as
+        "differs"."""
         on_ws = self._make_workspace(
             "on", b"a" * 5000,
             session_log_lines=[_init_line(True), _tool_use_line(SKILL_NAME)])
         off_ws = self._make_workspace("off", b"a" * 12)  # no session log
         result = rcp.compute_h1_manipulation(on_ws, off_ws, SKILL_NAME)
-        self.assertTrue(result["differs"])
+        self.assertFalse(result["differs"])
         self.assertFalse(result["off_invocation"]["measured"])
+        self.assertIn("could not be", result["reason"])
 
     def test_no_skill_name_is_a_failure(self):
         on_ws = self._make_workspace(
@@ -285,15 +370,22 @@ class ComputeH1ManipulationTest(unittest.TestCase):
         self.assertIn("no skill_name supplied", result["reason"])
 
     def test_directive_bytes_are_reported_but_never_gate(self):
-        """Byte-identical arms must still pass H1 as long as invocation
-        genuinely differs -- the construct-validity fix's core claim."""
+        """Byte-identical `.on-the-record/directive/*.md` content must
+        still pass H1 as long as the mounted-file content genuinely
+        differs -- the construct-validity fix's core claim, now checked
+        against the manifest-based content gate rather than invocation
+        alone."""
         on_ws = self._make_workspace(
             "on", b"identical baseline bytes",
             session_log_lines=[_init_line(True), _tool_use_line(SKILL_NAME)])
         off_ws = self._make_workspace(
             "off", b"identical baseline bytes",
-            session_log_lines=[_init_line(False)])
-        result = rcp.compute_h1_manipulation(on_ws, off_ws, SKILL_NAME)
+            session_log_lines=[_init_line(True), _tool_use_line(SKILL_NAME)])
+        on_arm_manifest, off_arm_manifest = _make_arm_manifests(
+            Path(self._tmpdir.name) / "registry")
+        result = rcp.compute_h1_manipulation(
+            on_ws, off_ws, SKILL_NAME,
+            on_arm_manifest=on_arm_manifest, off_arm_manifest=off_arm_manifest)
         self.assertTrue(result["differs"])
         self.assertEqual(result["directive_bytes_parity"]["on_bytes"],
                           result["directive_bytes_parity"]["off_bytes"])
@@ -343,10 +435,14 @@ class GatePairOnH1Test(unittest.TestCase):
             "on", b"a" * 5000,
             session_log_lines=[_init_line(True), _tool_use_line(SKILL_NAME)])
         off_ws = self._make_workspace(
-            "off", b"a" * 12, session_log_lines=[_init_line(False)])
-        result = rcp.gate_pair_on_h1("01-study-groups", on_ws, off_ws,
-                                      skill_name=SKILL_NAME,
-                                      compute_h2=lambda: {"verdict": "ok"})
+            "off", b"a" * 12,
+            session_log_lines=[_init_line(True), _tool_use_line(SKILL_NAME)])
+        on_arm_manifest, off_arm_manifest = _make_arm_manifests(
+            Path(self._tmpdir.name) / "registry")
+        result = rcp.gate_pair_on_h1(
+            "01-study-groups", on_ws, off_ws, skill_name=SKILL_NAME,
+            compute_h2=lambda: {"verdict": "ok"},
+            on_arm_manifest=on_arm_manifest, off_arm_manifest=off_arm_manifest)
         self.assertFalse(result["excluded_from_h2"])
         self.assertEqual(result["h2"], {"verdict": "ok"})
 
@@ -355,9 +451,13 @@ class GatePairOnH1Test(unittest.TestCase):
             "on", b"a" * 5000,
             session_log_lines=[_init_line(True), _tool_use_line(SKILL_NAME)])
         off_ws = self._make_workspace(
-            "off", b"a" * 12, session_log_lines=[_init_line(False)])
-        result = rcp.gate_pair_on_h1("01-study-groups", on_ws, off_ws,
-                                      skill_name=SKILL_NAME)
+            "off", b"a" * 12,
+            session_log_lines=[_init_line(True), _tool_use_line(SKILL_NAME)])
+        on_arm_manifest, off_arm_manifest = _make_arm_manifests(
+            Path(self._tmpdir.name) / "registry")
+        result = rcp.gate_pair_on_h1(
+            "01-study-groups", on_ws, off_ws, skill_name=SKILL_NAME,
+            on_arm_manifest=on_arm_manifest, off_arm_manifest=off_arm_manifest)
         self.assertFalse(result["excluded_from_h2"])
         self.assertIsNone(result["h2"])
         self.assertIn("h2_unavailable_reason", result)

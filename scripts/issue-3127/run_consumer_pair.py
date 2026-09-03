@@ -66,6 +66,7 @@ original build session did not pass it.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import random
 import re
@@ -84,6 +85,9 @@ import skills as _skills_mod  # noqa: E402 -- see build_stub_skill_repo()
 
 sys.path.insert(0, str(ROOT / "scripts"))
 import measure_skill_invocation as _msi  # noqa: E402 -- see collect_skill_invocation()
+
+sys.path.insert(0, str(ROOT / "scripts" / "consumer-path"))
+import prepare_arms as _pa_mod  # noqa: E402 -- see check_h1_content_manipulation()
 
 # Reused from issue-3053's floor-condition harness so pair identity (task
 # text, discipline) is held constant across the floor and consumer-path
@@ -672,6 +676,122 @@ def collect_skill_invocation(workspace: Path | None, skill_name: str,
             "reason": None}
 
 
+def _skill_md_manifest_entry(skill_files: list[dict] | None,
+                              skill_name: str) -> dict | None:
+    target = f"{skill_name}/SKILL.md"
+    for f in (skill_files or []):
+        if f.get("path") == target:
+            return f
+    return None
+
+
+def check_h1_content_manipulation(on_arm_manifest: dict | None,
+                                   off_arm_manifest: dict | None,
+                                   skill_name: str) -> dict:
+    """H1 content check for the decoy design (issue #3288 round 10).
+
+    The prior H1 rule ("the off arm's session must NOT record a Skill
+    tool_use call naming `skill_name`") targeted the retired design, where
+    the off arm had no skill repository at all and any invocation proved a
+    corpus leak. Under the decoy design (round 8/#3280) the off arm is
+    SUPPOSED to mount and invoke a same-named skill -- both arms mount at
+    the same path, and the manipulated variable is that file's CONTENT,
+    not its presence. Gating `differs` on "off arm did not invoke" now
+    fails every pair whose manipulation actually held (round 9 live
+    finding on pair `01-study-groups`: both arms mounted and invoked,
+    which is correct-by-design, and the old rule excluded it anyway).
+
+    This establishes the real manipulated variable straight from
+    `prepare_arms.py`'s manifest -- each arm's `skill_files` entries carry
+    a `sha256`/`size_bytes` recorded before either session ran, so the
+    content difference is checkable even after the arms' temporary HOMEs
+    are gone (round 8's evidence was unreadable for exactly this reason).
+    The one piece read live is the off arm's recorded `decoy.
+    source_skill_md` -- the STABLE skill-registry checkout path the decoy
+    was built from, never an arm's ephemeral HOME -- to independently
+    verify the on arm's hash matches the real file and the off arm's does
+    not, rather than trusting `prepare_arms.py`'s own self-attestation
+    that it built things correctly.
+
+    Fails closed (`content_ok: False` with a named reason) on any missing
+    manifest data, a vanished source file, a source file that itself has
+    no body to lose, an on-arm hash that does not match the real source,
+    or an off-arm hash indistinguishable from the real source -- never a
+    silent pass.
+    """
+    on_entry = _skill_md_manifest_entry(
+        (on_arm_manifest or {}).get("skill_files"), skill_name)
+    off_entry = _skill_md_manifest_entry(
+        (off_arm_manifest or {}).get("skill_files"), skill_name)
+    if on_entry is None:
+        return {"content_ok": False,
+                "reason": f"'on' arm's manifest carries no {skill_name}/"
+                          "SKILL.md entry in skill_files -- cannot check "
+                          "which content it mounted"}
+    if off_entry is None:
+        return {"content_ok": False,
+                "reason": f"'off' arm's manifest carries no {skill_name}/"
+                          "SKILL.md entry in skill_files -- cannot check "
+                          "which content it mounted"}
+    source_path_str = ((off_arm_manifest or {}).get("decoy") or {}).get(
+        "source_skill_md")
+    if not source_path_str:
+        return {"content_ok": False,
+                "reason": "'off' arm's manifest carries no "
+                          "decoy.source_skill_md -- cannot independently "
+                          "verify either arm's content against the real "
+                          "skill file the decoy was built from"}
+    source_path = Path(source_path_str)
+    if not source_path.is_file():
+        return {"content_ok": False,
+                "reason": f"the decoy's recorded source {source_path} no "
+                          "longer exists -- cannot independently verify "
+                          "content without re-reading a path that is gone "
+                          "(this is the stable skill-registry checkout, "
+                          "not an arm's temporary HOME; its absence means "
+                          "the registry moved or was cleaned, not that "
+                          "the arms are untrustworthy)"}
+    source_bytes = source_path.read_bytes()
+    source_hash = hashlib.sha256(source_bytes).hexdigest()
+    source_text = source_bytes.decode("utf-8", errors="replace")
+    front_matter = _pa_mod.front_matter_block(source_text)
+    if front_matter == source_text:
+        return {"content_ok": False,
+                "reason": f"{source_path} carries no body beyond its "
+                          "front matter as currently read -- cannot "
+                          "confirm the on arm's mount carries guidance "
+                          "the off arm's placeholder lacks"}
+    on_matches_real = on_entry.get("sha256") == source_hash
+    off_matches_real = off_entry.get("sha256") == source_hash
+    off_smaller_than_real = (off_entry.get("size_bytes", 0) <
+                              len(source_bytes))
+    if not on_matches_real:
+        return {"content_ok": False,
+                "reason": "'on' arm's mounted SKILL.md "
+                          f"(sha256={on_entry.get('sha256')}) does not "
+                          "match a fresh hash of the real source "
+                          f"{source_path} (sha256={source_hash}) -- "
+                          "cannot confirm the on arm actually carries the "
+                          "real guidance body"}
+    if off_matches_real or not off_smaller_than_real:
+        return {"content_ok": False,
+                "reason": "'off' arm's mounted SKILL.md "
+                          f"(sha256={off_entry.get('sha256')}, "
+                          f"{off_entry.get('size_bytes')} bytes) is not "
+                          "distinguishable from the real source "
+                          f"{source_path} ({len(source_bytes)} bytes, "
+                          f"sha256={source_hash}) -- cannot confirm the "
+                          "off arm's mount is the placeholder rather than "
+                          "the real content"}
+    return {"content_ok": True, "reason": None,
+            "on_sha256": on_entry.get("sha256"),
+            "off_sha256": off_entry.get("sha256"),
+            "real_source_sha256": source_hash,
+            "real_source_path": str(source_path),
+            "real_source_size_bytes": len(source_bytes),
+            "off_size_bytes": off_entry.get("size_bytes")}
+
+
 def compute_h1_manipulation(workspace_on: Path | None,
                              workspace_off: Path | None,
                              skill_name: str | None,
@@ -679,10 +799,16 @@ def compute_h1_manipulation(workspace_on: Path | None,
                              issue_on: int | None = None,
                              issue_off: int | None = None,
                              skills_root_on: str | None = None,
-                             skills_root_off: str | None = None) -> dict:
+                             skills_root_off: str | None = None,
+                             on_arm_manifest: dict | None = None,
+                             off_arm_manifest: dict | None = None) -> dict:
     """H1 enforcement, re-operationalized 2026-09-02 (issue #3127
     consult, `runs/consult-logs/20260902T125610799701-948846.log`,
-    following PR #3172's construct-validity finding).
+    following PR #3172's construct-validity finding), and again for the
+    decoy design 2026-09-03 (issue #3288 round 10 -- see
+    `check_h1_content_manipulation()`'s docstring for why the "off arm
+    must not invoke" rule this function used to apply is wrong for the
+    current arm construction).
 
     Before this: H1 gated on `directive_composition_bytes` (sum of
     `<workspace>/.on-the-record/directive/*.md`). PR #3172 ran two real
@@ -696,24 +822,27 @@ def compute_h1_manipulation(workspace_on: Path | None,
     never pass it when it genuinely had -- a construct-validity gap, not
     a measurement of the thing H1 claims to gate.
 
-    The gating signal is now `collect_skill_invocation()`: did the on
-    arm's session log record a real Skill tool_use call naming the
-    target skill, and did the off arm's NOT. `directive_composition_bytes`
-    is still collected, returned under `directive_bytes_parity`, but only
-    as a secondary environment-parity diagnostic -- it no longer gates
-    `differs` (pre-registration's decision rule, threshold, and sample
-    size are unchanged; only this H1 observation changed -- see the
+    The gating signal is now two-part. First, `collect_skill_invocation()`:
+    did BOTH arms' sessions actually dispatch and mount `skill_name` --
+    under the decoy design (round 8/#3280) this is expected of both arms,
+    not just the on arm, since the off arm mounts a same-named decoy at
+    the same path. Second, `check_h1_content_manipulation()`: does the on
+    arm's mounted SKILL.md carry the real guidance body, and the off
+    arm's the placeholder with no body -- the actual manipulated variable
+    under this design. `directive_composition_bytes` is still collected,
+    returned under `directive_bytes_parity`, but only as a secondary
+    environment-parity diagnostic -- it no longer gates `differs`
+    (pre-registration's decision rule, threshold, and sample size are
+    unchanged; only this H1 observation changed -- see the
     pre-registration's dated amendment).
 
-    Missing/unmeasurable session-log data for the ON arm is a
-    manipulation-check FAILURE, same discipline the original proxy used
-    for a missing workspace: there is nothing to prove the manipulation
-    worked, so it is not credited as having worked. Missing/unmeasurable
-    data for the OFF arm is compatible with "the off arm did not invoke
-    the target skill" (absence of invocation evidence is itself evidence
-    of non-invocation for an arm whose corpus was deliberately made
-    empty) and does not by itself fail the gate -- but is recorded, never
-    silently conflated with a genuinely-measured non-invocation.
+    Missing/unmeasurable session-log data for EITHER arm is a
+    manipulation-check FAILURE now (round 10 change): under the decoy
+    design there is no longer an arm expected to produce no invocation
+    evidence, so absence of evidence is no longer treated as evidence of
+    absence for the off arm the way it was under the retired zero-corpus
+    design -- it is simply unmeasured, and unmeasured does not get
+    credited as "differs".
 
     `skills_root_on`/`skills_root_off` (issue #3288): each arm's own
     `manifest["arms"][...]["skills_root"]` from `prepare_arms.py`, passed
@@ -723,9 +852,16 @@ def compute_h1_manipulation(workspace_on: Path | None,
     (never under the hardcoded production skill-registry path `analyze()`
     falls back to) is reported as `mounted: []` -- an unmeasured-looking
     empty result for an arm that, in fact, mounted exactly what it was
-    given. `mounted` is diagnostic only here (`differs` gates on `invoked`
-    alone), but a wrong `mounted: []` still misleads anyone reading the
-    per-pair report, which is reason enough to fix it at the source.
+    given. `mounted` is now load-bearing (round 10): both arms' mounted
+    lists must contain `skill_name`, so a wrong `mounted: []` would wrongly
+    fail a pair whose manipulation held, not just mislead a reader.
+
+    `on_arm_manifest`/`off_arm_manifest` (issue #3288 round 10): each
+    arm's full entry from `manifest["arms"]` (carries `skill_files` and,
+    for the off arm, `decoy`) -- passed to `check_h1_content_manipulation()`
+    to establish the actual manipulated variable. See that function's
+    docstring for why this replaces the old "off arm must not invoke"
+    rule.
     """
     directive_bytes_parity = {
         "on_bytes": collect_directive_bytes(workspace_on),
@@ -759,20 +895,34 @@ def compute_h1_manipulation(workspace_on: Path | None,
                           "found/parsed for a real Skill tool_use call "
                           f"({on_invocation['reason']}) -- treated as a "
                           "manipulation-check failure, not silently passed"}
-    if not on_invocation["invoked"]:
+    if skill_name not in (on_invocation.get("mounted") or []):
         return {**base, "differs": False,
-                "reason": "the skills-on arm's session log never recorded "
-                          f"a Skill tool_use call naming {skill_name!r} -- "
-                          "the manipulation did not happen even though "
-                          "the arm was configured to receive it"}
-    if off_invocation["invoked"]:
+                "reason": "the skills-on arm's session never mounted "
+                          f"{skill_name!r} (the init event's plugins[] did "
+                          "not include it under the arm's own skills_root) "
+                          "-- the manipulation's precondition, that the on "
+                          "arm actually received the skill, does not hold"}
+    if not off_invocation["measured"]:
         return {**base, "differs": False,
-                "reason": "the skills-off arm's session log ALSO recorded "
-                          f"a Skill tool_use call naming {skill_name!r} -- "
-                          "the corpus leaked through despite the "
-                          "skill-repo: source-qualifier isolation (the "
-                          "mirror image of issue #3053's retracted first, "
-                          "zero-mount run)"}
+                "reason": "the skills-off arm's session log could not be "
+                          f"found/parsed ({off_invocation['reason']}) -- "
+                          "cannot confirm the off arm mounted its decoy, "
+                          "treated as a manipulation-check failure, not "
+                          "silently passed"}
+    if skill_name not in (off_invocation.get("mounted") or []):
+        return {**base, "differs": False,
+                "reason": "the skills-off arm's session never mounted "
+                          f"{skill_name!r} under its decoy skills_root -- "
+                          "under the decoy design (round 8/#3280) this is "
+                          "expected to resolve and mount, so its absence "
+                          "means the off arm never received the "
+                          "controlled comparison at all, not that the "
+                          "manipulation held"}
+    content = check_h1_content_manipulation(on_arm_manifest, off_arm_manifest,
+                                             skill_name)
+    base["content_manipulation"] = content
+    if not content["content_ok"]:
+        return {**base, "differs": False, "reason": content["reason"]}
     return {**base, "differs": True, "reason": None}
 
 
@@ -782,7 +932,9 @@ def gate_pair_on_h1(pair_id: str, workspace_on: Path | None,
                      issue_on: int | None = None,
                      issue_off: int | None = None,
                      skills_root_on: str | None = None,
-                     skills_root_off: str | None = None) -> dict:
+                     skills_root_off: str | None = None,
+                     on_arm_manifest: dict | None = None,
+                     off_arm_manifest: dict | None = None) -> dict:
     """Applies the H1 gate to one pair (issue #3127 repair round, defect 2):
     computes H1 via `compute_h1_manipulation()`; if it fails, the pair is
     excluded from H2 and the exclusion + reason are recorded in the
@@ -809,12 +961,21 @@ def gate_pair_on_h1(pair_id: str, workspace_on: Path | None,
     so `mounted` is measured against what that arm actually received
     instead of a hardcoded production path -- see that function's
     docstring.
+
+    `on_arm_manifest`/`off_arm_manifest` (issue #3288 round 10): each
+    arm's full `manifest["arms"][...]` entry, passed through to
+    `compute_h1_manipulation()` -> `check_h1_content_manipulation()` to
+    establish the decoy design's actual manipulated variable (SKILL.md
+    content, not presence) -- see that function's docstring for why the
+    rule this replaced is wrong for the current arm construction.
     """
     h1 = compute_h1_manipulation(workspace_on, workspace_off, skill_name,
                                   repo=repo, issue_on=issue_on,
                                   issue_off=issue_off,
                                   skills_root_on=skills_root_on,
-                                  skills_root_off=skills_root_off)
+                                  skills_root_off=skills_root_off,
+                                  on_arm_manifest=on_arm_manifest,
+                                  off_arm_manifest=off_arm_manifest)
     result = {"pair_id": pair_id, "h1": h1, "h1_manipulation_ok": h1["differs"]}
     if not h1["differs"]:
         result["excluded_from_h2"] = True
