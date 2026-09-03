@@ -252,20 +252,28 @@ def collect_cost(repo: str, issue: int, skill_name: str) -> dict:
         return {"cost_usd": None, "measured": False,
                 "reason": "runs/ledger.jsonl does not exist"}
     matches = []
+    skipped_malformed_lines = 0
     with ledger.open(encoding="utf-8") as f:
         for line in f:
             try:
                 entry = json.loads(line)
             except json.JSONDecodeError:
+                # Silent-failure-audit: a malformed line must be COUNTED,
+                # not just dropped -- otherwise a corrupted entry for this
+                # exact issue/skill would silently under-report cost with
+                # no indication anything was skipped.
+                skipped_malformed_lines += 1
                 continue
             if entry.get("issue") == issue and entry.get("skill") == skill_name:
                 matches.append(entry)
     if not matches:
         return {"cost_usd": None, "measured": False,
                 "reason": f"no runs/ledger.jsonl entries for issue={issue} "
-                          f"skill={skill_name!r}"}
+                          f"skill={skill_name!r}",
+                "skipped_malformed_lines": skipped_malformed_lines}
     total = sum(m.get("cost_usd") or 0 for m in matches)
-    return {"cost_usd": total, "measured": True, "ledger_entries": matches}
+    return {"cost_usd": total, "measured": True, "ledger_entries": matches,
+            "skipped_malformed_lines": skipped_malformed_lines}
 
 
 def run_pair(pair_id: str, repo: str, skill_name: str, model: str,
@@ -276,9 +284,18 @@ def run_pair(pair_id: str, repo: str, skill_name: str, model: str,
     task_text = task_file.read_text(encoding="utf-8").strip()
 
     out_dir.mkdir(parents=True, exist_ok=True)
-    manifest, created_dirs = prepare_arms.build_manifest(
-        Path(os.environ.get("MUSTER_SKILL_REGISTRY_ROOT", "")),
-        skill_name, model, os.environ.get("USER", "unknown"))
+    try:
+        manifest, created_dirs = prepare_arms.build_manifest(
+            Path(os.environ.get("MUSTER_SKILL_REGISTRY_ROOT", "")),
+            skill_name, model, os.environ.get("USER", "unknown"))
+    except prepare_arms.ArmPreparationError as exc:
+        # Silent-failure-audit: without this, an unpopulated/misconfigured
+        # skills root would crash this launcher with a bare traceback
+        # instead of the same clean "excluded, with a reason" shape every
+        # other failure path in this module already returns.
+        return {"pair_id": pair_id, "status": "manifest-preparation-failed",
+                "reason": str(exc), "excluded_from_h2": True,
+                "exclusion_reason": str(exc), "h2": None}
     manifest_path = out_dir / "manifest.json"
     manifest_text = prepare_arms.render_manifest_json(manifest)
     manifest_path.write_text(manifest_text, encoding="utf-8")
