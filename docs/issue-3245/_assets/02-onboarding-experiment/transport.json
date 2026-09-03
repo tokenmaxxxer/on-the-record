@@ -17,7 +17,7 @@
         "/home/jwjung/study-companion"
       ],
       "env": {
-        "HOME": "/tmp/consumer-path-on-home-gpnq4nu3",
+        "HOME": "/tmp/consumer-path-on-home-vt3awom8",
         "MUSTER_SKILL_REPO": "/home/jwjung/skill-registry/skills"
       }
     },
@@ -36,9 +36,19 @@
         "/home/jwjung/study-companion"
       ],
       "env": {
-        "HOME": "/tmp/consumer-path-off-home-b0gy74wc",
-        "MUSTER_SKILL_REPO": "/tmp/consumer-path-off-skills-absent-4e9abf69ab65417f9486a40ef292836e"
+        "HOME": "/tmp/consumer-path-off-home-pnez329o",
+        "MUSTER_SKILL_REPO": "/tmp/consumer-path-off-skills-absent-1d06c7d161ef40a6871484728419f805"
       }
+    }
+  },
+  "credential_seeding": {
+    "on": {
+      "seeded": true,
+      "source": "/home/jwjung/.claude/.credentials.json"
+    },
+    "off": {
+      "seeded": true,
+      "source": "/home/jwjung/.claude/.credentials.json"
     }
   }
 }

@@ -1,40 +1,101 @@
 {
   "pair_id": "02-onboarding-experiment",
+  "h1": {
+    "directive_bytes_parity": {
+      "on_bytes": null,
+      "off_bytes": null,
+      "note": "secondary environment-parity diagnostic only -- does NOT gate H1 (construct-validity gap found by PR #3172: a skill delivered via the runtime Skill tool never touches this file set, so identical bytes here is expected and uninformative, not a manipulation-check failure)"
+    },
+    "on_invocation": {
+      "session_log": "/tmp/consumer-path-on-home-vt3awom8/.tokenmaxxxer/work/study-companion-issue-21-product-discovery-hypothesis-preregistration-8cd5e4a9.session.20260903T141954.2140862.log",
+      "mounted": [
+        "product-discovery-hypothesis-preregistration",
+        "work-in-english"
+      ],
+      "invoked": true,
+      "measured": true,
+      "mounted_but_not_invoked": false,
+      "invoked_but_not_mounted": false,
+      "reason": null
+    },
+    "off_invocation": {
+      "session_log": "/tmp/consumer-path-off-home-pnez329o/.tokenmaxxxer/work/study-companion-issue-22-product-discovery-hypothesis-preregistration-2cf819e7.session.20260903T142532.2164364.log",
+      "mounted": [],
+      "invoked": true,
+      "measured": true,
+      "mounted_but_not_invoked": false,
+      "invoked_but_not_mounted": true,
+      "reason": null
+    },
+    "differs": false,
+    "reason": "the skills-off arm's session log ALSO recorded a Skill tool_use call naming 'product-discovery-hypothesis-preregistration' -- the corpus leaked through despite the skill-repo: source-qualifier isolation (the mirror image of issue #3053's retracted first, zero-mount run)"
+  },
+  "h1_manipulation_ok": false,
+  "excluded_from_h2": true,
+  "exclusion_reason": "H1 manipulation check failed: the skills-off arm's session log ALSO recorded a Skill tool_use call naming 'product-discovery-hypothesis-preregistration' -- the corpus leaked through despite the skill-repo: source-qualifier isolation (the mirror image of issue #3053's retracted first, zero-mount run)",
+  "h2": null,
   "manifest": "docs/issue-3245/_assets/02-onboarding-experiment/manifest.json",
   "transport": "docs/issue-3245/_assets/02-onboarding-experiment/transport.json",
   "manipulation_check": {
     "manipulation_held": true,
     "pair_excluded": false,
-    "arms_checked": ["on", "off"]
+    "manifest": "docs/issue-3245/_assets/02-onboarding-experiment/manifest.json",
+    "transport": "docs/issue-3245/_assets/02-onboarding-experiment/transport.json",
+    "arms_checked": [
+      "on",
+      "off"
+    ]
   },
   "arm_results": {
     "on": {
-      "arm": "on", "issue": 21, "status": "watch-failed",
-      "wall_clock_to_pr_open_s": 312.3017464913428,
-      "dispatch_returncode": 0, "watch_returncode": 1,
-      "watch_stderr": "[watch] issue-21/product-discovery-hypothesis-preregistration: 기록 없음 — 아직 스폰된 적이 없다",
-      "real_pr": "https://github.com/JiwonJung94/study-companion/pull/31",
-      "real_branch": "issue-21/product-discovery-hypothesis-preregistration-c2e23e59",
-      "note": "dispatch genuinely succeeded (dispatch_returncode 0) and produced real PR #31, confirmed live via `gh pr list` after this run finished. `watch` itself failed because execute_arm() still passed `--session <bare skill name>` to `spawn.py watch` at the time this run started -- the real session name always carries a disambiguator suffix minted at dispatch time, so the bare name never matches (same root cause as this round's H1 fix). Fixed after this run in execute_arm() (omit --session, let events._lookup_roster_entry() auto-select the single live match by --issue/-C alone) -- not yet re-verified end-to-end against a fresh dispatch this round, see the record's Open findings."
+      "arm": "on",
+      "issue": 21,
+      "status": "watched-to-completion",
+      "wall_clock_to_pr_open_s": 332.016257153824,
+      "wall_clock_to_landed_s": null,
+      "landing_measurement_status": "not_measured -- this harness observes only the spawned session's own session-end event, which under the unmodified two-phase protocol is at most a phase-1 proposal PR opening, not a merge to main. wall_clock_to_pr_open_s is the honest name for what was actually timed.",
+      "dispatch_returncode": 0,
+      "watch_returncode": 0,
+      "watch_stderr": null
     },
     "off": {
-      "arm": "off", "issue": 22, "status": "watch-failed",
-      "wall_clock_to_pr_open_s": 315.9655836261809,
-      "dispatch_returncode": 0, "watch_returncode": 1,
-      "watch_stderr": "[watch] issue-22/product-discovery-hypothesis-preregistration: 기록 없음 — 아직 스폰된 적이 없다",
-      "real_pr": null,
-      "real_branch": null,
-      "note": "dispatch_returncode 0 -- dispatched successfully. No PR found yet via `gh pr list` as of this record; the off arm's real session may still be completing in the background (spawn.py's --skills sessions self-daemonize and are not killed by this launcher's own watch failing). Not fabricated as failed or as succeeded -- status left as this run actually observed it."
+      "arm": "off",
+      "issue": 22,
+      "status": "watched-to-completion",
+      "wall_clock_to_pr_open_s": 413.258263444528,
+      "wall_clock_to_landed_s": null,
+      "landing_measurement_status": "not_measured -- this harness observes only the spawned session's own session-end event, which under the unmodified two-phase protocol is at most a phase-1 proposal PR opening, not a merge to main. wall_clock_to_pr_open_s is the honest name for what was actually timed.",
+      "dispatch_returncode": 0,
+      "watch_returncode": 0,
+      "watch_stderr": null
     }
   },
-  "h1": null,
-  "h2": null,
-  "h1_manipulation_ok": false,
-  "excluded_from_h2": true,
-  "exclusion_reason": "Both arms dispatched successfully (dispatch_returncode 0) but this run's own watch call failed on both, for a bug independently found and fixed this round (execute_arm()'s watch --session argument, same disambiguator-mismatch root cause as the H1 fix scripts/issue-3127/run_consumer_pair.py carries -- see the record's 'What was done' §1). Because run_pair() also ran prepare_arms._cleanup() before the H1 gate on this attempt (a second, structural instance of the same class of bug, also fixed this round by reordering cleanup to after gate_pair_on_h1()), no session-log evidence survives from this specific attempt to retroactively recover H1/H2 for it. Both fixes are in place in this commit; a fresh dispatch under the fixed code was not re-run this round (turn budget) -- this pair is reported honestly as unscored this round, not silently reported as scored or as a clean failure.",
-  "fixes_landed_this_round_not_yet_reverified_end_to_end": [
-    "execute_arm() omits --session (scripts/consumer-path/run_pair.py)",
-    "prepare_arms._cleanup() moved to after gate_pair_on_h1() (scripts/consumer-path/run_pair.py)",
-    "collect_skill_invocation()/_discover_arm_branch() unknown-vs-never-dispatched labeling (scripts/issue-3127/run_consumer_pair.py), verified by unit tests but not against a fresh real dispatch of this exact pair"
-  ]
+  "verification": {
+    "on": {
+      "verification_rounds": null,
+      "defects_found": null,
+      "measured": false,
+      "reason": "gh pr view 'issue-21/product-discovery-hypothesis-preregistration' failed: no pull requests found for branch \"issue-21/product-discovery-hypothesis-preregistration\""
+    },
+    "off": {
+      "verification_rounds": null,
+      "defects_found": null,
+      "measured": false,
+      "reason": "gh pr view 'issue-22/product-discovery-hypothesis-preregistration' failed: no pull requests found for branch \"issue-22/product-discovery-hypothesis-preregistration\""
+    }
+  },
+  "cost": {
+    "on": {
+      "cost_usd": null,
+      "measured": false,
+      "reason": "no runs/ledger.jsonl entries for issue=21 skill='product-discovery-hypothesis-preregistration'",
+      "skipped_malformed_lines": 0
+    },
+    "off": {
+      "cost_usd": null,
+      "measured": false,
+      "reason": "no runs/ledger.jsonl entries for issue=22 skill='product-discovery-hypothesis-preregistration'",
+      "skipped_malformed_lines": 0
+    }
+  }
 }
