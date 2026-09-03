@@ -115,6 +115,12 @@ rather than prior recorded work, and made no delivery.
    confirmed stopped and the issue is reopened, one session should pick up
    round 3 rather than starting over, to avoid adding another duplicate.
 
+amendments-reconciled: issuecomment-5519356741 — re-read at PR-preflight time
+via `gh api repos/tokenmaxxxer/on-the-record/issues/comments/5519356741`; body
+is the same "Closing temporarily as a runaway containment step..." comment
+already quoted and cited under "What was done" above. No new content beyond
+what this record already reflects.
+
 ## Next steps
 
 Awaiting user decision on how to stop the live respawn loop (this session
