@@ -58,7 +58,11 @@ _TEST_PATH_RE = re.compile(
 # identity sites (docs/issue-2924/reports/silent-failure-audit+
 # refactoring-legacy-seam-selection-140f0858.md). board.py's /proc mention
 # is prose about a mechanism that does not exist yet, not a live call.
-KNOWN_PROC_SITES = {"roster.py", "watchdog.py"}
+# issue #3281: amendment_channel.py's ancestry walk (registered_repo_for_pid)
+# now emits a runtime-visible NoProcOnPlatform notice (not just a docstring)
+# when /proc is absent, before falling back to None -- see
+# _report_write_result() and record_amendment_from_response().
+KNOWN_PROC_SITES = {"roster.py", "watchdog.py", "amendment_channel.py"}
 
 _FLOCK_INVOKE_RE = re.compile(r"(^|[^\w#])flock(\s|$)")
 _FLOCK_GUARD_RE = re.compile(r"command\s+-v\s+flock")

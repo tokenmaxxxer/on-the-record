@@ -492,6 +492,30 @@ class RecordAmendmentFromResponse(unittest.TestCase):
         result = self._record('gh issue edit 42 --body "fixed brief"', None)
         self.assertIsInstance(result, ac.NoIssueUrlInResponse)
 
+    def test_no_proc_on_platform_is_fail_closed_with_a_distinct_notice(self):
+        """issue #3281: macOS has no `/proc` at all, so the ancestry walk
+        cannot even attempt to run -- this must be reported as its own
+        runtime-visible notice (`NoProcOnPlatform`), distinct from
+        `NoRegisteredRepo` (a Linux ancestry MISS with `/proc` present but
+        no match), so an operator on a Mac sees "this platform can't do
+        this" rather than a message that reads like a per-session fluke."""
+        url = "https://github.com/%s/issues/42" % REPO_A
+        real_isdir = os.path.isdir
+        with unittest.mock.patch(
+                "os.path.isdir",
+                side_effect=lambda p: False if p == "/proc" else real_isdir(p)):
+            result = self._record('gh issue edit 42 --body "fixed brief"',
+                                   _bash_tool_response(url))
+        self.assertIsInstance(result, ac.NoProcOnPlatform)
+        self.assertNotIsInstance(result, ac.NoRegisteredRepo)
+        self.assertIsNone(ac.read_marker(self.state_dir, REPO_A, "42"))
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr):
+            ac._report_write_result(result)
+        text = stderr.getvalue()
+        self.assertIn("no /proc", text)
+        self.assertIn("macOS", text)
+
     def test_no_registered_repo_is_fail_closed_not_skip_silently(self):
         """issue #3129 round-4 caveat 2, round-5 mechanism: a session with
         no roster registration at all (not started through spawn.py) must

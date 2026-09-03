@@ -816,16 +816,32 @@ class AmendmentSkipped(NamedTuple):
     not a failure. `main()` exits 0 for this outcome."""
 
 
+class NoProcOnPlatform(NamedTuple):
+    """(issue #3281) This platform has no `/proc` at all (macOS) --
+    ancestry-based repo attribution structurally cannot run here, for any
+    session, ever, regardless of roster state. Split out from
+    `NoRegisteredRepo` (a Linux ancestry MISS: roster unreadable or no
+    ancestor pid matched -- a legitimate per-session closed failure the
+    module already reported before this split) so the runtime notice can
+    say plainly "this platform can't do this" instead of folding a
+    platform gap into a message about one session's registration. Fails
+    closed: no marker, one stderr line, nonzero exit from `main()` --
+    the `macos_bash32_compat.py` check requires exactly this
+    runtime-visible signal (not just a docstring) before a `/proc` site
+    may join `KNOWN_PROC_SITES`."""
+
+
 class NoRegisteredRepo(NamedTuple):
     """(issue #3129 round-4 caveat 2, mechanism replaced in round 5) This
     session's own process ancestry carries no roster registration at all
-    within the hop budget -- no `/proc` on this platform, the roster is
-    unreadable, or no ancestor pid matches a live, correctly-paired
-    roster entry -- which is exactly what a session started OUTSIDE
-    `spawn.py` (no registration ever made) looks like from here. Fails
-    closed: no marker, one stderr line, nonzero exit from `main()`. Never
-    a fallback to `cwd` or anything else the session's own tool calls
-    could influence -- see `registered_repo_for_pid()`."""
+    within the hop budget -- the roster is unreadable, or no ancestor pid
+    matches a live, correctly-paired roster entry -- which is exactly what
+    a session started OUTSIDE `spawn.py` (no registration ever made) looks
+    like from here. (No `/proc` on this platform is `NoProcOnPlatform`
+    instead, checked first -- see `record_amendment_from_response()`.)
+    Fails closed: no marker, one stderr line, nonzero exit from `main()`.
+    Never a fallback to `cwd` or anything else the session's own tool
+    calls could influence -- see `registered_repo_for_pid()`."""
 
 
 class NoIssueUrlInResponse(NamedTuple):
@@ -866,7 +882,7 @@ class AmendmentWritten(NamedTuple):
 
 
 WriteResult = Union[
-    AmendmentSkipped, NoRegisteredRepo, NoIssueUrlInResponse,
+    AmendmentSkipped, NoProcOnPlatform, NoRegisteredRepo, NoIssueUrlInResponse,
     RepoMismatch, MarkerWriteFailed, AmendmentWritten,
 ]
 
@@ -894,6 +910,9 @@ def record_amendment_from_response(
     if not _gh_issue_edit_body_call(tool_name, command):
         return AmendmentSkipped()
 
+    if not os.path.isdir("/proc"):
+        return NoProcOnPlatform()
+
     registered_repo = registered_repo_for_pid(
         pid if pid is not None else os.getpid(), roster_path=roster_path)
     if registered_repo is None:
@@ -918,16 +937,25 @@ def _report_write_result(result: WriteResult) -> None:
     promises. Quiet for `AmendmentSkipped` (nothing happened, nothing to
     report) and `AmendmentWritten` (the success path speaks for itself via
     the marker file). Never raises."""
-    if isinstance(result, NoRegisteredRepo):
+    if isinstance(result, NoProcOnPlatform):
+        sys.stderr.write(
+            "amendment-channel: this platform has no /proc (macOS) -- "
+            "ancestry-based repo attribution cannot run here at all, for "
+            "any session -- no marker written, corrections routed through "
+            "this channel will never be delivered on this platform (not a "
+            "per-session failure; see amendment_channel.py's module "
+            "docstring for the platform gap)\n"
+        )
+    elif isinstance(result, NoRegisteredRepo):
         sys.stderr.write(
             "amendment-channel: could not find this session's own "
-            "registered repo in spawn.py's roster (no /proc on this "
-            "platform, the roster is unreadable, or this process's own "
-            "ancestry carries no registered pid at all -- e.g. a session "
-            "not started through spawn.py) -- no marker written, the "
-            "running worker will not see this correction (unregistered; "
-            "never attributed to cwd or anything else this session's own "
-            "tool calls could influence)\n"
+            "registered repo in spawn.py's roster (the roster is "
+            "unreadable, or this process's own ancestry carries no "
+            "registered pid at all -- e.g. a session not started through "
+            "spawn.py) -- no marker written, the running worker will not "
+            "see this correction (unregistered; never attributed to cwd "
+            "or anything else this session's own tool calls could "
+            "influence)\n"
         )
     elif isinstance(result, NoIssueUrlInResponse):
         sys.stderr.write(
@@ -1049,8 +1077,9 @@ def main() -> int:
     # already wrote is the loud signal for the live hook path, same
     # mechanism the pre-existing unresolvable-repo/unwritable-state-dir
     # cases already used before this round.
-    if isinstance(write_result, (NoRegisteredRepo, NoIssueUrlInResponse,
-                                  RepoMismatch, MarkerWriteFailed)):
+    if isinstance(write_result, (NoProcOnPlatform, NoRegisteredRepo,
+                                  NoIssueUrlInResponse, RepoMismatch,
+                                  MarkerWriteFailed)):
         return 1
     return 0
 
