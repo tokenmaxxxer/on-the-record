@@ -2706,6 +2706,13 @@ def main() -> int:
         note = f" ({res['reason']})" if res.get("reason") else ""
         print(f"멈췄다: owner={res['token']} pid={res['pid']}{note}")
         return 0
+    if a.role == "tick-payload":
+        # Issue #3293 stage 2: the read-only wake payload, for the branch
+        # where `poll-due` said a sibling already claimed this window.
+        # Deliberately not gated on poll-due -- that gate exists to keep the
+        # watchdog single-writer, and this path writes nothing.
+        import watchdog as _wd  # noqa: PLC0415
+        return _wd.tick_payload_report(Path(a.cwd or "."))
     if a.role == "gc-monitor-alive":
         return monitor_alive_gc_cli(Path(a.cwd).resolve())
     if a.role == "reconcile":

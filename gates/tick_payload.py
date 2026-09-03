@@ -36,6 +36,7 @@ from pathlib import Path
 MAX_FILES_PER_SESSION = 12
 MAX_CALLS_PER_SESSION = 8
 MAX_COMMAND_CHARS = 100
+IDLE_ITEMS_PER_LABEL = 4
 
 # Paths the harness writes on its own schedule. A change confined to these
 # is bookkeeping, not the session getting anywhere. Same list
@@ -164,8 +165,15 @@ def idle_block(outstanding: dict) -> list[str]:
         if not items:
             continue
         named = True
-        lines.append(f"    {label}: {', '.join(str(i) for i in items[:10])}"
-                     + (f" … +{len(items) - 10}" if len(items) > 10 else ""))
+        # Capped hard and low. The first live idle tick listed 26 board
+        # branches at ~700 tokens -- on an idle roster, which is the tick
+        # that repeats most. The orchestrator needs to know outstanding
+        # work exists and roughly what it is; the full list is one `gh`
+        # call away when it decides to look.
+        head = [str(i) for i in items[:IDLE_ITEMS_PER_LABEL]]
+        more = len(items) - len(head)
+        lines.append(f"    {label} ({len(items)}): {', '.join(head)}"
+                     + (f" … +{more}" if more > 0 else ""))
     if not named:
         lines.append("    nothing outstanding was found -- if that is right, "
                      "the goal is done and this monitor can be stopped "

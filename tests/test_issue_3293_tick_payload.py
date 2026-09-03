@@ -104,7 +104,15 @@ class ItCarriesTheWorkTest(unittest.TestCase):
 class TheIdleTickStillSaysSomethingTest(unittest.TestCase):
     def test_it_names_outstanding_work(self):
         text = "\n".join(tick_payload.idle_block({"open PRs": ["11", "12"]}))
-        self.assertIn("open PRs: 11, 12", text)
+        self.assertIn("open PRs (2): 11, 12", text)
+
+    def test_a_long_outstanding_list_is_capped_and_counted(self):
+        # First live idle tick listed 26 branch keys at ~700 tokens, on the
+        # tick that repeats most often.
+        items = [f"issue-{i}/some-long-branch-key" for i in range(26)]
+        text = "\n".join(tick_payload.idle_block({"branches": items}))
+        self.assertIn("branches (26):", text)
+        self.assertIn("… +22", text)
 
     def test_with_nothing_outstanding_it_points_at_stopping_the_monitor(self):
         text = "\n".join(tick_payload.idle_block({}))

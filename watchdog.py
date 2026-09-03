@@ -214,6 +214,72 @@ def _pr_state_from_index(pr_index: dict, branch: str) -> int | None:
     return pr.get("number") if pr.get("state") in ("OPEN", "MERGED") else None
 
 
+def tick_payload_report(root: Path) -> int:
+    """The read-only payload a not-due tick emits (issue #3293 stage 2).
+
+    `poll-due` deduplicates the *watchdog* across sibling sessions sharing a
+    checkout, which is right -- the watchdog mutates the ledger and calls
+    `gh`, and N sessions must not all run it. But the not-due branch went
+    fully silent (issue #1220), so a session whose window a sibling claimed
+    did not wake at all. "Wake every 120 seconds unconditionally" cannot be
+    built on a signal another process is allowed to consume.
+
+    So the wake is split from the sweep. This path takes no lock, claims no
+    window, writes no ledger, and makes no network call: it reads file
+    mtimes and the tail of each session log. Running it on every tick in
+    every session is therefore safe in a way running the watchdog is not,
+    and `poll_due()`'s single-session protection is left exactly as it was.
+
+    The window is this session's own last payload emission, stamped per
+    owner token, not the shared watchdog state -- a sibling's tick must not
+    move the boundary of what this session is told it has not yet seen.
+    """
+    try:
+        sys.path.insert(0, str(ROOT / "gates"))
+        import tick_payload  # noqa: PLC0415
+        import session_progress  # noqa: PLC0415
+    except Exception:
+        return 0
+    owner = os.environ.get("OTR_MONITOR_OWNER") or "unowned"
+    stamp = (Path.home() / ".claude" / "tokenmaxxxer"
+             / f"tick-payload-{owner}.ts")
+    now = time.time()
+    since = now - POLL_INTERVAL_SEC * 2
+    try:
+        since = float(stamp.read_text(encoding="utf-8").strip())
+    except (OSError, ValueError):
+        pass
+    try:
+        d = _sp._roster_load() or {}
+    except Exception:
+        d = {}
+    printed = False
+    for key, entry in sorted(d.items()):
+        if not isinstance(entry, dict):
+            continue
+        calls = []
+        log = entry.get("log")
+        if log:
+            try:
+                calls = list(session_progress.recent_tool_calls(
+                    Path(log), tick_payload.MAX_CALLS_PER_SESSION * 2))
+            except (OSError, ValueError):
+                calls = []
+        for line in tick_payload.session_block(key, entry, since,
+                                               "NOT-SWEPT-THIS-TICK", calls):
+            print(line)
+        printed = True
+    if not printed:
+        for line in _idle_tick_lines(root):
+            print(line)
+    try:
+        stamp.parent.mkdir(parents=True, exist_ok=True)
+        stamp.write_text(str(now), encoding="utf-8")
+    except OSError:
+        pass
+    return 0
+
+
 def _session_tick_lines(key: str, entry: dict, state: dict | None,
                          verdict: str | None) -> list[str]:
     """One session's raw activity for this tick (#3293 stage 2).
@@ -278,9 +344,12 @@ def _idle_tick_lines(root: Path) -> list[str]:
         board = None
     if isinstance(board, dict):
         try:
-            prs = [str(k) for k in (_board_pr_index(root) or {})]
-            if prs:
-                outstanding["open PRs"] = prs
+            # Named for what it actually is. These are pr_index branch
+            # keys, not open PRs -- calling them open PRs would have the
+            # idle tick assert something it never checked.
+            branches = [str(k) for k in (_board_pr_index(root) or {})]
+            if branches:
+                outstanding["board branches awaiting disposition"] = branches
         except Exception:
             pass
     try:

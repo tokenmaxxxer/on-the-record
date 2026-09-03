@@ -649,9 +649,22 @@ while true; do
     if [ -n "${due_out}" ]; then
       _poll_watchdog_log_append "$(printf '[poll-due crashed, rc=%s] %s' "${due_rc}" "${due_out}")"
     fi
-    # issue #1220: non-due ticks are now fully silent (no "skipped (within
-    # TTL)" line) — delta-only emission means a normal within-TTL tick
-    # produces zero Monitor-visible output, not a constant per-minute echo.
+    # issue #1220: non-due ticks carry no watchdog output — the sibling
+    # session that claimed this window runs the sweep.
+    # issue #3293: but the tick must still WAKE. A session whose window a
+    # sibling claimed used to produce nothing at all, so "wake every 120
+    # seconds" quietly depended on winning a race against every other
+    # session sharing this checkout. `tick-payload` is the read-only half:
+    # no lock, no ledger write, no gh call, so running it in every session
+    # every tick leaves poll-due's single-writer protection untouched.
+    payload="$(python3 "${CHECKOUT}/spawn.py" tick-payload 2>/dev/null)"
+    # Printed straight through, not via poll_heartbeat_delta.py: the
+    # payload is exempt from that filter by design, and routing it there
+    # would also have this branch write the shared last-state file that the
+    # due branch owns.
+    if [ -n "${payload}" ]; then
+      printf '%s\n' "${payload}"
+    fi
   fi
   tick=$((tick + 1))
   if [ "${max_ticks}" != "0" ] && [ "${tick}" -ge "${max_ticks}" ]; then
