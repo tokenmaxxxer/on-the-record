@@ -39,6 +39,7 @@ import json
 import os
 import subprocess
 import tempfile
+import re
 from pathlib import Path
 from typing import Callable
 
@@ -99,13 +100,29 @@ query($q: String!) {
 """
 
 
-def snapshot_path(root: Path) -> Path:
-    """Snapshot location. Orchestrator-scoped state (issue #2240) — routed
-    through gates/state_paths.py, the single accessor gates/gh_delta.py's
-    cursors also use, so `root` (the target repo) never determines where
-    our own cross-tick memory lives. `root` is accepted for call-site
-    symmetry with every other board-read helper; it is not used here."""
-    return state_paths.orchestrator_state_path("board_snapshot.json")
+def _slug_key(slug: str | None) -> str:
+    """A slug as a filename-safe key. `None` (non-GitHub checkout) buckets
+    together under `unknown`, same as it did when there was one file."""
+    return re.sub(r"[^A-Za-z0-9._-]", "_", slug) if slug else "unknown"
+
+
+def snapshot_path(root: Path, slug: str | None = None) -> Path:
+    """Snapshot location, per (orchestrator, repo).
+
+    Orchestrator-scoped, not target-repo-scoped (issue #2240) -- this is our
+    own cross-tick memory and must not live under `root / "runs"`. But it is
+    memory ABOUT a repo, and one file for every repo meant two boards
+    overwrote each other: on a machine where one plugin checkout sweeps
+    on-the-record and video_producer, a `[video_producer]`-labelled
+    requirement-drift line listed on-the-record's issue numbers (#3262,
+    #3285, ...), because the label came from the swept repo and the numbers
+    came from whichever repo wrote the snapshot last. The file also carried
+    no repo field, so nothing could notice the mismatch (issue #3296).
+
+    `root` is accepted for call-site symmetry and is still not used to
+    locate the file."""
+    return state_paths.orchestrator_state_path(
+        "board_snapshot-%s.json" % _slug_key(slug))
 
 
 def _atomic_write_json(path: Path, data: dict) -> None:
@@ -270,8 +287,14 @@ def board_read(root: Path, slug: str, run: Callable | None = None,
              "error": <str|None>}.
     """
     run = run or subprocess.run
-    spath = path or snapshot_path(root)
+    spath = path or snapshot_path(root, slug)
     snap = load_snapshot(spath)
+    if snap is not None and snap.get("slug") not in (None, slug):
+        # Belongs to another board. Treat as absent rather than merge a
+        # delta onto someone else's issues -- the failure this replaces
+        # printed one repo's numbers under another repo's label with
+        # nothing anywhere saying so.
+        snap = None
     if force_full is None:
         force_full = os.environ.get("BOARD_READ_FORCE_FULL") == "1"
     if full_every is None:
@@ -322,7 +345,8 @@ def board_read(root: Path, slug: str, run: Callable | None = None,
             last = _max_updated_at(merged_items) or snap["last_sweep_at"]
             board = {"issues": issues, "prs": prs}
             _atomic_write_json(spath, {
-                "version": SNAPSHOT_VERSION, "last_sweep_at": last,
+                "version": SNAPSHOT_VERSION, "slug": slug,
+                "last_sweep_at": last,
                 "sweep_seq": sweep_seq + 1,
                 "issues": issues, "prs": prs})
             return board, {"source": "delta", "api_calls": calls,
@@ -346,6 +370,11 @@ def board_read(root: Path, slug: str, run: Callable | None = None,
             "issues": board["issues"], "prs": board["prs"]}
     if last is not None:
         data["last_sweep_at"] = last
+        # Stamp which repo this describes (issue #3296). The per-slug
+        # filename already separates them; this is what lets a read NOTICE a
+        # mismatch instead of trusting a file that silently belongs to
+        # another board.
+        data["slug"] = slug
         _atomic_write_json(spath, data)
     return board, {"source": "full", "api_calls": calls,
                    "last_sweep_at": last, "error": None}

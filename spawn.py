@@ -1135,11 +1135,15 @@ ROSTER = STATE_ROOT / "active.json"
 # 틱이 (기존 120초 폴 주기 그대로) 한 번 읽어 소비한다 — 새 `gh`/git 호출도,
 # 새 폴링 주기도 추가하지 않는다.
 PENDING_COMPLETIONS = STATE_ROOT / "pending-completions.jsonl"
+# How long another repo's completion waits for its own orchestrator
+# before it is dropped rather than kept forever (issue #3296).
+FOREIGN_COMPLETION_TTL_SEC = 24 * 3600
 
 
 def _record_session_completion(key: str, issue: int, skill: str,
                                session_id: str | None,
-                               pr_number: int | None, outcome: str) -> None:
+                               pr_number: int | None, outcome: str,
+                               repo: str | None = None) -> None:
     """완료 사실 하나를 큐에 append 한다 — lock 은 `_drain_pending_completions()`
     와 공유해 드레인 도중의 append 가 조용히 사라지는 레이스를 없앤다.
 
@@ -1151,7 +1155,7 @@ def _record_session_completion(key: str, issue: int, skill: str,
     세션 자신의 종료 처리는 그대로 끝난다."""
     entry = {"key": key, "issue": issue, "skill": skill,
              "session_id": session_id, "pr_number": pr_number,
-             "outcome": outcome, "ts": int(time.time())}
+             "outcome": outcome, "repo": repo, "ts": int(time.time())}
     try:
         PENDING_COMPLETIONS.parent.mkdir(parents=True, exist_ok=True)
         lock_path = PENDING_COMPLETIONS.with_name(PENDING_COMPLETIONS.name + ".lock")
@@ -1167,7 +1171,8 @@ def _record_session_completion(key: str, issue: int, skill: str,
               file=sys.stderr)
 
 
-def _drain_pending_completions() -> tuple[list[dict], str | None]:
+def _drain_pending_completions(repo: str | None = None
+                                ) -> tuple[list[dict], str | None, int]:
     """큐를 원자적으로 읽고 비운다 — 한 번 드레인한 완료 사실은 다음 틱에
     다시 나타나지 않는다(완료는 한 번만 알린다는 계약).
 
@@ -1186,9 +1191,9 @@ def _drain_pending_completions() -> tuple[list[dict], str | None]:
                 try:
                     text = PENDING_COMPLETIONS.read_text(encoding="utf-8")
                 except FileNotFoundError:
-                    return [], None
+                    return [], None, 0
                 if not text:
-                    return [], None
+                    return [], None, 0
                 entries = []
                 for line in text.splitlines():
                     line = line.strip()
@@ -1198,12 +1203,39 @@ def _drain_pending_completions() -> tuple[list[dict], str | None]:
                         entries.append(json.loads(line))
                     except ValueError:
                         continue
-                PENDING_COMPLETIONS.write_text("", encoding="utf-8")
-                return entries, None
+                if repo is None:
+                    PENDING_COMPLETIONS.write_text("", encoding="utf-8")
+                    return entries, None, 0
+                # Issue #3296: take only this repo's completions and leave
+                # the rest for the orchestrator they belong to. Entries
+                # written before this field existed carry no repo; they go
+                # to whoever drains first, exactly as they did before.
+                mine, theirs = [], []
+                cutoff = time.time() - FOREIGN_COMPLETION_TTL_SEC
+                dropped = 0
+                for e in entries:
+                    owner = e.get("repo") if isinstance(e, dict) else None
+                    if owner is None or owner == repo:
+                        mine.append(e)
+                    elif float(e.get("ts") or 0) < cutoff:
+                        # Nobody drained it for a day -- that orchestrator is
+                        # not running. Dropping is right; dropping silently
+                        # is not, so the count goes back to the caller.
+                        dropped += 1
+                    else:
+                        theirs.append(e)
+                PENDING_COMPLETIONS.write_text(
+                    "".join(json.dumps(e, ensure_ascii=False) + "\n"
+                            for e in theirs), encoding="utf-8")
+                # Dropping is not a read failure. Returning it through the
+                # error channel would print it as "queue unreadable" and
+                # count it as an anomaly -- the mislabelling this issue is
+                # about. Third slot, separate meaning.
+                return mine, None, dropped
             finally:
                 fcntl.flock(f, fcntl.LOCK_UN)
     except OSError as exc:
-        return [], str(exc)
+        return [], str(exc), 0
 
 
 RECONCILE_LEDGER = ROOT / "runs" / "reconcile_ledger.json"
@@ -5485,8 +5517,12 @@ def _spawn_one(cwd: str, skill: str, task: str, unattended: bool,
             capture_output=True, text=True).stdout.strip()
         completion_pr = (_pr_open_or_merged_for_branch(Path(cwd), completion_branch)
                          if completion_branch else None)
+        # Issue #3296: which repo this completion belongs to. One plugin
+        # checkout serves several, and an unattributed entry surfaced in
+        # every orchestrator's heartbeat as if it were its own.
         _record_session_completion(roster_key, issue, skill,
-                                   result.get("session_id"), completion_pr, outcome)
+                                   result.get("session_id"), completion_pr, outcome,
+                                   repo=_repo_identity(cwd))
     if denials:
         print(f"[{skill}] 거부된 도구 호출 {len(denials)}건 — 게이트가 막았거나 "
               f"답할 사람이 없어 거부됐다. 무엇을 막았는지는 세션 출력에 있다",

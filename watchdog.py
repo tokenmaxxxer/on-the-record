@@ -2359,7 +2359,14 @@ def roster_watchdog(auto_respawn: bool = False, all_scope: bool = False,
     # 이슈 #2904 가 겨냥하는 바로 그 결함(깨끗한 출력과 안 봤음이
     # 구별 안 됨)을 새로 만든다.
     anomaly_count = 0
-    _pending_completions, _pc_err = _sp._drain_pending_completions()
+    # Issue #3296: only this repo's completions. Another repo's stay in
+    # the queue for its own orchestrator instead of being reported here
+    # as if this session had spawned them.
+    _pending_completions, _pc_err, _pc_dropped = _sp._drain_pending_completions(
+        _sp._repo_identity(root))
+    if _pc_dropped:
+        print(f"[poll-report] 다른 저장소 완료 {_pc_dropped}건을 버렸다 — "
+              f"하루 넘게 그 저장소의 오케스트레이터가 드레인하지 않았다")
     if _pc_err is not None:
         anomaly_count += 1
         print(f"[poll-report-drain-failed] pending-completions 큐를 못 읽음 "

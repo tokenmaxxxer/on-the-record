@@ -26,6 +26,7 @@ import os
 import subprocess
 import tempfile
 from datetime import datetime, timedelta, timezone
+import re
 from pathlib import Path
 from typing import Callable
 
@@ -34,11 +35,20 @@ import state_paths
 _VALID_RESOURCES = ("issues", "pulls")
 
 
-def cursor_path(resource: str) -> Path:
+def cursor_path(resource: str, slug: str | None = None) -> Path:
     """issue #2240: the cursor is orchestrator cross-tick memory (which gh
     items we've already seen), not target-repo state — anchored via
-    state_paths, never `root / "runs"`."""
-    return state_paths.orchestrator_state_path(f"gh_delta_cursor_{resource}.json")
+    state_paths, never `root / "runs"`.
+
+    issue #3296: and it is memory about ONE repo. A single cursor shared by
+    every repo this orchestrator sweeps lets one repo's fetch advance the
+    other's "already seen" mark, so the other reports `delta empty` for
+    changes it never actually read -- a missed observation wearing a clean
+    result's clothes. Keyed by slug; `None` buckets under `unknown`, the
+    same single bucket the old shared file was."""
+    key = re.sub(r"[^A-Za-z0-9._-]", "_", slug) if slug else "unknown"
+    return state_paths.orchestrator_state_path(
+        f"gh_delta_cursor_{resource}_{key}.json")
 
 
 def _split_gh_api_i_output(stdout: str) -> tuple[int | None, dict[str, str], str]:
@@ -138,7 +148,7 @@ def fetch_delta(root: Path, slug: str, resource: str, run: Callable | None = Non
         raise ValueError(f"unknown resource: {resource!r}")
     run = run or subprocess.run
     now = now or datetime.now(timezone.utc).isoformat()
-    cpath = path or cursor_path(resource)
+    cpath = path or cursor_path(resource, slug)
 
     cur = _load_cursor(cpath)
     forced_rescan = False

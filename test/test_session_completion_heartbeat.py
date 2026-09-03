@@ -42,26 +42,26 @@ class PendingCompletionsQueueTest(unittest.TestCase):
         self._tmpdir.cleanup()
 
     def test_empty_state_drains_nothing(self):
-        self.assertEqual(spawn._drain_pending_completions(), ([], None))
+        self.assertEqual(spawn._drain_pending_completions(), ([], None, 0))
 
     def test_recorded_completion_drains_once(self):
         spawn._record_session_completion("issue-2894/verification", 2894,
                                          "verification", "sess-abc", 2897,
                                          "progressed")
-        entries, err = spawn._drain_pending_completions()
+        entries, err, _dropped = spawn._drain_pending_completions()
         self.assertIsNone(err)
         self.assertEqual(len(entries), 1)
         self.assertEqual(entries[0]["issue"], 2894)
         self.assertEqual(entries[0]["pr_number"], 2897)
         self.assertEqual(entries[0]["session_id"], "sess-abc")
         # one-shot: draining again returns nothing new
-        self.assertEqual(spawn._drain_pending_completions(), ([], None))
+        self.assertEqual(spawn._drain_pending_completions(), ([], None, 0))
 
     def test_pr_missing_is_recorded_as_none_not_dropped(self):
         spawn._record_session_completion("issue-1/implementation", 1,
                                          "implementation", "sess-xyz", None,
                                          "refused")
-        entries, err = spawn._drain_pending_completions()
+        entries, err, _dropped = spawn._drain_pending_completions()
         self.assertIsNone(err)
         self.assertEqual(len(entries), 1)
         self.assertIsNone(entries[0]["pr_number"])
@@ -77,7 +77,7 @@ class PendingCompletionsQueueTest(unittest.TestCase):
             spawn._record_session_completion("issue-9/x", 9, "x", None,
                                               None, "progressed")
         # no exception raised -- and nothing was queued
-        self.assertEqual(spawn._drain_pending_completions(), ([], None))
+        self.assertEqual(spawn._drain_pending_completions(), ([], None, 0))
 
     def test_read_failure_is_reported_as_error_not_silent_empty(self):
         """Same shape this issue is about, one layer down: a queue the
@@ -88,7 +88,7 @@ class PendingCompletionsQueueTest(unittest.TestCase):
                                          "progressed")
         with mock.patch.object(Path, "read_text",
                                side_effect=OSError("permission denied")):
-            entries, err = spawn._drain_pending_completions()
+            entries, err, _dropped = spawn._drain_pending_completions()
         self.assertEqual(entries, [])
         self.assertIsNotNone(err)
 
