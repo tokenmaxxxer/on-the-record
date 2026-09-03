@@ -49,3 +49,6 @@ command with no row here (degrade to `UNMEASURED-with-reason` instead).
 | gates/probe_amends_fails_closed.py | `python3 gates/probe_amends_fails_closed.py` | 2026-09-02 (issue #3134) |
 | tests/ (full suite) | `python3 -m pytest tests/ -q` | 2026-09-02 (issue #3134) |
 | test/ (full suite) | `python3 -m pytest test/ -q` | 2026-09-02 (issue #3134) |
+| on-the-record/hooks/test_hook_classification.py | `python3 -m pytest on-the-record/hooks/test_hook_classification.py -q` | 2026-09-03 (issue #3229) |
+| tests/test_issue_3229_delegation_live_wiring.py | `python3 -m pytest tests/test_issue_3229_delegation_live_wiring.py -q` | 2026-09-03 (issue #3229) |
+| test/test_delegation_state.py | `python3 -m pytest test/test_delegation_state.py -q` | 2026-09-03 (issue #3229) |

@@ -74,7 +74,7 @@ fi
 _fallback_fired=0
 if [ -n "$_failed_open" ]; then
     case "$_hook_name" in
-        session-role-bind.sh|directive.sh|post-landing-obligation-gate.sh|stop-gate.sh|skill-verdict-guard.sh)
+        session-role-bind.sh|directive.sh|post-landing-obligation-gate.sh|stop-gate.sh|skill-verdict-guard.sh|delegation-live-check.sh)
             _fallback_fired=1
             # Visible in-band degraded notice (issue #2962): a distinct,
             # unambiguous line -- not the raw traceback standing in for it
