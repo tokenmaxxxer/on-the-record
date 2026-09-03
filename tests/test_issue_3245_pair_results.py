@@ -187,6 +187,53 @@ def test_run_pair_fails_closed_when_operator_credential_missing(
     assert not (tmp_path / "out" / "manifest.json").exists()
 
 
+# --- find_pr_branch: real branch discovered by prefix, not assumed -----
+# --- (the bare-skill-name bug this round's watch/deliverable-fetch fix
+# --- responds to: spawn.py --skills always appends a disambiguator) ----
+
+def _fake_completed(stdout="", returncode=0):
+    return subprocess.CompletedProcess(
+        args=["gh"], returncode=returncode, stdout=stdout, stderr="")
+
+
+def test_find_pr_branch_picks_most_recent_matching_prefix(monkeypatch):
+    prs = [
+        {"headRefName": "issue-19/product-discovery-hypothesis-preregistration-aaa",
+         "createdAt": "2026-09-01T00:00:00Z"},
+        {"headRefName": "issue-19/product-discovery-hypothesis-preregistration-bbb",
+         "createdAt": "2026-09-02T00:00:00Z"},
+        {"headRefName": "issue-20/some-other-skill-ccc",
+         "createdAt": "2026-09-03T00:00:00Z"},
+    ]
+    monkeypatch.setattr(
+        run_pair.subprocess, "run",
+        lambda *a, **kw: _fake_completed(stdout=json.dumps(prs)))
+    branch = run_pair.find_pr_branch("/tmp/fake-repo", 19)
+    assert branch == "issue-19/product-discovery-hypothesis-preregistration-bbb"
+
+
+def test_find_pr_branch_no_match_returns_none(monkeypatch):
+    monkeypatch.setattr(
+        run_pair.subprocess, "run",
+        lambda *a, **kw: _fake_completed(stdout=json.dumps([
+            {"headRefName": "issue-999/other", "createdAt": "2026-09-01T00:00:00Z"}])))
+    assert run_pair.find_pr_branch("/tmp/fake-repo", 19) is None
+
+
+def test_find_pr_branch_gh_failure_returns_none(monkeypatch):
+    monkeypatch.setattr(
+        run_pair.subprocess, "run",
+        lambda *a, **kw: _fake_completed(returncode=1))
+    assert run_pair.find_pr_branch("/tmp/fake-repo", 19) is None
+
+
+def test_find_pr_branch_timeout_returns_none(monkeypatch):
+    def _raise(*a, **kw):
+        raise subprocess.TimeoutExpired(cmd="gh", timeout=30)
+    monkeypatch.setattr(run_pair.subprocess, "run", _raise)
+    assert run_pair.find_pr_branch("/tmp/fake-repo", 19) is None
+
+
 # --- collect_verification_rounds / collect_cost: fail-closed, not fabricated
 
 def test_collect_verification_rounds_missing_pr_returns_none(tmp_path):

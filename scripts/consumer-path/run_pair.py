@@ -255,15 +255,21 @@ def execute_arm(argv: list[str], env_override: dict, repo: str, issue: int,
         "to main. wall_clock_to_pr_open_s is the honest name for what "
         "was actually timed.")
     env = {**_clean_base_env(), **env_override}
-    lint = subprocess.run(
-        ["python3", "spawn.py", "lint", "--issue", str(issue), "-C", repo],
-        cwd=ROOT, env=env, capture_output=True, text=True)
+    try:
+        lint = subprocess.run(
+            ["python3", "spawn.py", "lint", "--issue", str(issue), "-C", repo],
+            cwd=ROOT, env=env, capture_output=True, text=True, timeout=60)
+    except subprocess.TimeoutExpired:
+        return {"arm": arm_name, "issue": issue, "status": "lint-timed-out"}
     if lint.returncode != 0:
         return {"arm": arm_name, "issue": issue, "status": "lint-failed",
                 "lint_stderr": lint.stderr}
     t0 = time.monotonic()
-    dispatch = subprocess.run(argv, cwd=ROOT, env=env,
-                               capture_output=True, text=True)
+    try:
+        dispatch = subprocess.run(argv, cwd=ROOT, env=env,
+                                   capture_output=True, text=True, timeout=120)
+    except subprocess.TimeoutExpired:
+        return {"arm": arm_name, "issue": issue, "status": "dispatch-timed-out"}
     if dispatch.returncode != 0:
         return {"arm": arm_name, "issue": issue, "status": "dispatch-failed",
                 "dispatch_returncode": dispatch.returncode,
@@ -294,6 +300,46 @@ def execute_arm(argv: list[str], env_override: dict, repo: str, issue: int,
     }
 
 
+def find_pr_branch(repo: str, issue: int) -> str | None:
+    """The real branch `spawn.py`'s `--skills` dispatch created for
+    `issue`, discovered by prefix match against `issue-<n>/` rather than
+    assumed to equal the bare skill name. Every `--skills` dispatch
+    always appends a fresh lease-disambiguator suffix (`spawn.py`,
+    `a.role = f"{skill_slug}-{disambiguator}"`, ~line 2511) -- live-
+    reproduced this round: `issue-<n>/<skill_name>` (no suffix) never
+    matched the actual branch/session name for either the `watch`
+    lookup or the deliverable/verification-rounds fetch below, even
+    though `gh pr list` confirmed a real PR existed under the suffixed
+    name. Returns the most recently created PR's head ref whose prefix
+    matches, or `None` (not a guess) if none exist -- callers must treat
+    `None` as "no PR found for this issue", the same fail-closed shape
+    every other missing-signal path in this module already uses."""
+    try:
+        r = subprocess.run(
+            ["gh", "pr", "list", "--state", "all", "--json",
+             "headRefName,createdAt", "--limit", "100"],
+            cwd=repo, capture_output=True, text=True, timeout=30)
+    except subprocess.TimeoutExpired:
+        return None
+    if r.returncode != 0:
+        return None  # silent-failure: allow -- every caller of this best-effort
+        # helper (collect_verification_rounds, the deliverable _fetch above)
+        # already reports "measured: False"/"deliverable missing" identically
+        # regardless of whether gh itself failed or no PR exists yet; neither
+        # caller's behavior branches on the distinction, so collapsing both
+        # to None is a deliberate simplification, not a hidden failure.
+    try:
+        prs = json.loads(r.stdout)
+    except json.JSONDecodeError:
+        return None
+    prefix = f"issue-{issue}/"
+    matches = [p for p in prs if p.get("headRefName", "").startswith(prefix)]
+    if not matches:
+        return None
+    matches.sort(key=lambda p: p["createdAt"], reverse=True)
+    return matches[0]["headRefName"]
+
+
 def collect_verification_rounds(repo: str, issue: int, skill_name: str) -> dict:
     """Best-effort: how many review rounds the arm's own PR needed before
     it would have landed. Proxy: count of `CHANGES_REQUESTED` reviews on
@@ -301,10 +347,20 @@ def collect_verification_rounds(repo: str, issue: int, skill_name: str) -> dict:
     after the first. None (with a reason), never a fabricated 0, when the
     PR cannot be found or `gh` fails -- silent-failure-audit discipline:
     a missing signal is reported missing, not silently scored as clean."""
-    branch = f"issue-{issue}/{skill_name}"
-    r = subprocess.run(
-        ["gh", "pr", "view", branch, "--json", "reviews,commits"],
-        cwd=repo, capture_output=True, text=True)
+    branch = find_pr_branch(repo, issue)
+    if branch is None:
+        return {"verification_rounds": None, "defects_found": None,
+                "measured": False,
+                "reason": f"no PR found for issue {issue} under prefix "
+                          f"'issue-{issue}/'"}
+    try:
+        r = subprocess.run(
+            ["gh", "pr", "view", branch, "--json", "reviews,commits"],
+            cwd=repo, capture_output=True, text=True, timeout=30)
+    except subprocess.TimeoutExpired:
+        return {"verification_rounds": None, "defects_found": None,
+                "measured": False,
+                "reason": f"gh pr view {branch!r} timed out"}
     if r.returncode != 0:
         return {"verification_rounds": None, "defects_found": None,
                 "measured": False,
@@ -441,19 +497,48 @@ def run_pair(pair_id: str, repo: str, skill_name: str, model: str,
             "h2": None,
         }
 
-    class _P:  # minimal shim for rcp.arm_workspace_dir()'s Plan-shaped arg
-        sandbox_repo = repo
-        skill_name = skill_name
-    plan_shim = _P()
-    workspace_on = rcp.arm_workspace_dir(plan_shim, on_issue)
-    workspace_off = rcp.arm_workspace_dir(plan_shim, off_issue)
+    # `arm_workspace_dir()`/deliverable fetch need each arm's REAL,
+    # lease-disambiguated session name -- live-reproduced this round
+    # (docs/issue-3245's deviation-log): the bare `skill_name` alone
+    # never matches, since every `--skills` dispatch appends a fresh
+    # disambiguator suffix `spawn.py` assigns, never predictable in
+    # advance. `find_pr_branch()` discovers the real branch per arm;
+    # falls back to the bare skill name (which will simply not resolve
+    # to a real path/PR) only if no PR is found at all, so a genuine
+    # "PR missing" case still surfaces as a missing signal downstream
+    # rather than crashing.
+    on_branch = find_pr_branch(repo, on_issue)
+    off_branch = find_pr_branch(repo, off_issue)
+    on_session_name = on_branch.split("/", 1)[1] if on_branch else skill_name
+    off_session_name = off_branch.split("/", 1)[1] if off_branch else skill_name
 
-    def _fetch(_plan, issue):
-        return rcp._default_deliverable_fetcher(plan_shim, issue)
+    class _ArmPlan:  # minimal shim for rcp.arm_workspace_dir()'s Plan-shaped arg
+        def __init__(self, session_name: str):
+            self.sandbox_repo = repo
+            self.skill_name = session_name
+
+    workspace_on = rcp.arm_workspace_dir(_ArmPlan(on_session_name), on_issue)
+    workspace_off = rcp.arm_workspace_dir(_ArmPlan(off_session_name), off_issue)
+
+    def _fetch(branch: str | None) -> str | None:
+        if branch is None:
+            return None
+        try:
+            r = subprocess.run(
+                ["gh", "pr", "view", branch, "--json", "body", "-q", ".body"],
+                cwd=repo, capture_output=True, text=True, timeout=30)
+        except subprocess.TimeoutExpired:
+            return None
+        if r.returncode != 0:
+            return None  # silent-failure: allow -- compute_h2()'s caller
+            # reports "deliverable fetch failed" identically whether gh
+            # failed or the branch simply has no PR; same rationale as
+            # find_pr_branch() above.
+        return r.stdout
 
     def compute_h2():
-        deliverable_on = _fetch(plan_shim, on_issue)
-        deliverable_off = _fetch(plan_shim, off_issue)
+        deliverable_on = _fetch(on_branch)
+        deliverable_off = _fetch(off_branch)
         if deliverable_on is None or deliverable_off is None:
             return {"h2_unavailable": True,
                     "h2_unavailable_reason":
