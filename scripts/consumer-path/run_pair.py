@@ -103,6 +103,70 @@ def _github_slug_from_local_repo(local_repo: str) -> str | None:
     return m.group(1) if m else None
 
 
+_DELIVERABLE_PATH_RE = re.compile(r"^docs/issue-\d+/(specs|reports)/.*\.md$")
+
+
+def _deliverable_file_paths(local_repo: str, branch: str) -> list[str]:
+    """The arm's own committed brief file(s) on `branch` -- everything
+    matching the acceptance check every measurement issue in this run
+    carries (`docs/issue-*/specs/*.md` or `docs/issue-*/reports/*.md`),
+    never the PR description. Empty (not raised) if `gh pr view` fails or
+    lists no such path -- the caller treats that as a missing
+    deliverable, same fail-closed shape as every other collector here."""
+    r = subprocess.run(["gh", "pr", "view", branch, "--json", "files"],
+                        cwd=local_repo, capture_output=True, text=True)
+    if r.returncode != 0:
+        return []
+    try:
+        data = json.loads(r.stdout)
+    except json.JSONDecodeError:
+        return []
+    paths = [f.get("path", "") for f in data.get("files", [])]
+    return sorted(p for p in paths if _DELIVERABLE_PATH_RE.match(p))
+
+
+def _file_content_from_branch(local_repo: str, branch: str,
+                               path: str) -> str | None:
+    fetch = subprocess.run(["git", "fetch", "origin", branch],
+                            cwd=local_repo, capture_output=True, text=True)
+    if fetch.returncode != 0:
+        return None
+    show = subprocess.run(["git", "show", f"origin/{branch}:{path}"],
+                           cwd=local_repo, capture_output=True, text=True)
+    return show.stdout if show.returncode == 0 else None
+
+
+def fetch_deliverable_files(github_slug: str, local_repo: str,
+                             issue: int) -> str | None:
+    """Issue #3245 round 7: the real deliverable is the brief FILE(S) the
+    arm actually committed under docs/issue-<n>/{specs,reports}/*.md on
+    its own PR branch -- never the PR description
+    (`rcp._default_deliverable_fetcher`'s `--json body`, which round 3
+    and round 4 both scored and got a meaningless tie because neither
+    arm's brief lives there). Also discovers the real branch via
+    `rcp._discover_arm_branch()` rather than guessing
+    `issue-<n>/<skill>` the way `rcp._default_deliverable_fetcher` does --
+    that guess is missing spawn.py's own lease disambiguator suffix and
+    never matches a real branch (see `_github_slug_from_local_repo()`'s
+    docstring for the sibling `-R`-vs-path defect this round already
+    fixed). Returns None (not a fabricated empty string) when the branch
+    or its deliverable files cannot be found, so a missing deliverable is
+    visibly missing rather than silently scored as empty."""
+    discovery = rcp._discover_arm_branch(github_slug, issue)
+    if not discovery["found"]:
+        return None
+    branch = discovery["branch"]
+    paths = _deliverable_file_paths(local_repo, branch)
+    if not paths:
+        return None
+    parts = []
+    for path in paths:
+        text = _file_content_from_branch(local_repo, branch, path)
+        if text is not None:
+            parts.append(f"--- {path} ---\n{text}")
+    return "\n\n".join(parts) if parts else None
+
+
 def _rebase_workspace_to_arm_home(workspace: Path | None,
                                    arm_home: str) -> Path | None:
     """`rcp.arm_workspace_dir()` computes its guess from `Path.home()`
@@ -493,12 +557,11 @@ def run_pair(pair_id: str, repo: str, skill_name: str, model: str,
     workspace_off = _rebase_workspace_to_arm_home(
         rcp.arm_workspace_dir(plan_shim, off_issue), off_home)
 
-    def _fetch(_plan, issue):
-        return rcp._default_deliverable_fetcher(plan_shim, issue)
+    github_slug = _github_slug_from_local_repo(repo) or repo
 
     def compute_h2():
-        deliverable_on = _fetch(plan_shim, on_issue)
-        deliverable_off = _fetch(plan_shim, off_issue)
+        deliverable_on = fetch_deliverable_files(github_slug, repo, on_issue)
+        deliverable_off = fetch_deliverable_files(github_slug, repo, off_issue)
         if deliverable_on is None or deliverable_off is None:
             return {"h2_unavailable": True,
                     "h2_unavailable_reason":
@@ -512,7 +575,6 @@ def run_pair(pair_id: str, repo: str, skill_name: str, model: str,
                                         deliverable_off, [skill_name],
                                         evaluator_fn=evaluator_fn)
 
-    github_slug = _github_slug_from_local_repo(repo) or repo
     gated = rcp.gate_pair_on_h1(pair_id, workspace_on, workspace_off,
                                  skill_name=skill_name, compute_h2=compute_h2,
                                  repo=github_slug, issue_on=on_issue,

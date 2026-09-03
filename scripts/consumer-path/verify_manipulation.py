@@ -114,6 +114,15 @@ def _arm_by_name(manifest: dict, name: str) -> dict:
     return matches[0]
 
 
+def _skill_md_entry(skill_files: list, skill_name: str) -> dict | None:
+    """The single `<skill_name>/SKILL.md` entry among `skill_files`, or
+    None if it is missing or ambiguous -- the specific file the decoy
+    control (issue #3280) is about, not the arm's whole file list."""
+    matches = [f for f in skill_files
+               if f.get("path") == f"{skill_name}/SKILL.md"]
+    return matches[0] if len(matches) == 1 else None
+
+
 def cross_check(manifest: dict, transport: dict) -> None:
     """Compares the manifest's own arms against the transport record's
     argv/env for each arm. Nothing here reads any path off disk -- both
@@ -125,11 +134,39 @@ def cross_check(manifest: dict, transport: dict) -> None:
         raise VerificationFailure(
             "manifest's on/off arms share a HOME -- isolation invariant "
             "violated, pair excluded")
-    if on_arm["skill_files"] == [] or off_arm["skill_files"] != []:
+    if not on_arm["skill_files"]:
         raise VerificationFailure(
-            "manifest does not show the manipulated variable in the "
-            "expected direction (on arm must have resolved skill files, "
-            "off arm must have none) -- pair excluded")
+            "manifest's 'on' arm resolved no skill files -- pair excluded")
+    if not off_arm["skill_files"]:
+        raise VerificationFailure(
+            "manifest's 'off' arm resolved no skill files -- with the "
+            "decoy control (issue #3280) this must be a same-named decoy, "
+            "not an absent root -- pair excluded")
+
+    skill_name = manifest.get("skill_name")
+    if not skill_name:
+        raise VerificationFailure(
+            "manifest does not name skill_name -- cannot verify the "
+            "decoy control, pair excluded")
+    on_skill_md = _skill_md_entry(on_arm["skill_files"], skill_name)
+    off_skill_md = _skill_md_entry(off_arm["skill_files"], skill_name)
+    if on_skill_md is None:
+        raise VerificationFailure(
+            f"manifest's 'on' arm has no {skill_name}/SKILL.md among its "
+            "skill files -- pair excluded")
+    if off_skill_md is None:
+        raise VerificationFailure(
+            f"manifest's 'off' arm has no {skill_name}/SKILL.md decoy "
+            "among its skill files -- pair excluded")
+    if on_skill_md["sha256"] == off_skill_md["sha256"]:
+        raise VerificationFailure(
+            "manifest's 'on' and 'off' arm SKILL.md hash identically -- "
+            "the decoy does not differ from the real skill, pair excluded")
+    decoy = off_arm.get("decoy")
+    if not isinstance(decoy, dict) or decoy.get("has_body_guidance") is not False:
+        raise VerificationFailure(
+            "manifest's 'off' arm does not record a decoy with no body "
+            "guidance -- pair excluded")
 
     root_env_var = manifest.get("skills_root_env_var")
     if not root_env_var:

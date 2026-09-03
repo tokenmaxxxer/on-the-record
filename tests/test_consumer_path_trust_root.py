@@ -37,9 +37,11 @@ verify_manipulation = _load_module("verify_manipulation")
 def populated_skills_root(tmp_path):
     root = tmp_path / "skills-corpus"
     (root / "skill-a").mkdir(parents=True)
-    (root / "skill-a" / "SKILL.md").write_text("---\nname: skill-a\n---\n")
+    (root / "skill-a" / "SKILL.md").write_text(
+        "---\nname: skill-a\n---\nReal guidance body for skill-a.\n")
     (root / "skill-b").mkdir(parents=True)
-    (root / "skill-b" / "SKILL.md").write_text("---\nname: skill-b\n---\n")
+    (root / "skill-b" / "SKILL.md").write_text(
+        "---\nname: skill-b\n---\nReal guidance body for skill-b.\n")
     return root
 
 
@@ -87,21 +89,103 @@ def test_resolve_skill_files_skips_dot_directories(populated_skills_root):
     assert all(not f["path"].startswith(".") for f in files)
 
 
-def test_demonstrate_absence_on_nonexistent_path(tmp_path):
-    absent = tmp_path / "never-created"
-    result = prepare_arms.demonstrate_absence(absent)
-    assert result["skills_root_exists"] is False
-    assert result["file_count"] == 0
-    assert result["files_found"] == []
+def test_front_matter_block_strips_body():
+    text = "---\nname: skill-a\n---\nSome guidance body.\nMore lines.\n"
+    assert prepare_arms.front_matter_block(text) == "---\nname: skill-a\n---\n"
 
 
-def test_demonstrate_absence_reports_existing_but_nonempty(tmp_path):
-    populated = tmp_path / "populated"
-    populated.mkdir()
-    (populated / "leaked.md").write_text("leak")
-    result = prepare_arms.demonstrate_absence(populated)
-    assert result["skills_root_exists"] is True
-    assert result["file_count"] == 1
+def test_front_matter_block_falls_back_when_absent():
+    assert prepare_arms.front_matter_block("no front matter here") == \
+        "---\nname: (unknown)\n---\n"
+
+
+def test_build_decoy_skill_root_drops_body(tmp_path, populated_skills_root):
+    real = populated_skills_root / "skill-a" / "SKILL.md"
+    decoy_root = prepare_arms.build_decoy_skill_root("skill-a", real)
+    decoy_md = decoy_root / "skill-a" / "SKILL.md"
+    assert decoy_md.is_file()
+    text = decoy_md.read_text(encoding="utf-8")
+    assert text.startswith("---\nname: skill-a\n")
+    assert "Real guidance body" not in text
+    assert decoy_md.read_bytes() != real.read_bytes()
+
+
+def test_build_decoy_skill_root_drops_description_and_metadata(tmp_path):
+    """Round 8 mid-flight correction: a decoy that copies the real
+    front matter verbatim hands the off arm the description and
+    metadata fields, which are themselves most of what a rubric-scored
+    task measures. Only `name:` survives."""
+    root = tmp_path / "skills-corpus"
+    (root / "rich-skill").mkdir(parents=True)
+    real = root / "rich-skill" / "SKILL.md"
+    real.write_text(
+        "---\n"
+        "name: rich-skill\n"
+        "description: >-\n"
+        "  Use when a hypothesis needs its primary metric, numeric\n"
+        "  threshold, and decision rule fixed before data collection.\n"
+        "metadata:\n"
+        "  axis: hypothesis-preregistration\n"
+        "  rule_count_floor: 10\n"
+        "---\n"
+        "Body with the real guidance.\n",
+        encoding="utf-8",
+    )
+    decoy_root = prepare_arms.build_decoy_skill_root("rich-skill", real)
+    decoy_text = (decoy_root / "rich-skill" / "SKILL.md").read_text(
+        encoding="utf-8")
+    assert decoy_text.startswith("---\nname: rich-skill\n")
+    assert "metadata:" not in decoy_text
+    assert "rule_count_floor" not in decoy_text
+    assert "primary metric" not in decoy_text
+    assert "numeric" not in decoy_text
+    assert "threshold" not in decoy_text
+    assert "decision rule" not in decoy_text
+    assert decoy_text != real.read_text(encoding="utf-8")
+
+
+def test_build_decoy_skill_root_copies_real_policy_skills(
+        tmp_path, populated_skills_root, monkeypatch):
+    """Round 7 live finding: a decoy root holding only the manipulated
+    skill still refused to dispatch -- `resolve_static_policy_source()`
+    resolves `_STATIC_POLICY_SKILLS` against the same repo_root every
+    issue-scoped `--skills` spawn uses, fail-closed if any name is
+    missing. The decoy root must also carry a verbatim copy of those
+    names from the real corpus."""
+    monkeypatch.setattr(prepare_arms._skills_mod, "_STATIC_POLICY_SKILLS",
+                         {"skill-b"})
+    real = populated_skills_root / "skill-a" / "SKILL.md"
+    decoy_root = prepare_arms.build_decoy_skill_root(
+        "skill-a", real, populated_skills_root)
+    policy_copy = decoy_root / "skill-b" / "SKILL.md"
+    assert policy_copy.is_file()
+    assert policy_copy.read_bytes() == \
+        (populated_skills_root / "skill-b" / "SKILL.md").read_bytes()
+
+
+def test_build_decoy_skill_root_skips_absent_policy_skill(
+        tmp_path, populated_skills_root, monkeypatch):
+    monkeypatch.setattr(prepare_arms._skills_mod, "_STATIC_POLICY_SKILLS",
+                         {"no-such-policy-skill"})
+    real = populated_skills_root / "skill-a" / "SKILL.md"
+    decoy_root = prepare_arms.build_decoy_skill_root(
+        "skill-a", real, populated_skills_root)
+    assert not (decoy_root / "no-such-policy-skill").exists()
+
+
+def test_build_decoy_skill_root_rejects_missing_source(tmp_path):
+    with pytest.raises(prepare_arms.ArmPreparationError):
+        prepare_arms.build_decoy_skill_root(
+            "skill-a", tmp_path / "no-such-skill" / "SKILL.md")
+
+
+def test_build_decoy_skill_root_rejects_body_free_source(tmp_path):
+    root = tmp_path / "skills-corpus"
+    (root / "skill-a").mkdir(parents=True)
+    real = root / "skill-a" / "SKILL.md"
+    real.write_text("---\nname: skill-a\n---\n")  # no body to strip
+    with pytest.raises(prepare_arms.ArmPreparationError):
+        prepare_arms.build_decoy_skill_root("skill-a", real)
 
 
 # --- build_manifest: exactly-one-difference property --------------------
@@ -114,11 +198,16 @@ def test_arms_differ_only_in_manipulated_variable(populated_skills_root):
     on = [a for a in manifest["arms"] if a["arm"] == "on"][0]
     off = [a for a in manifest["arms"] if a["arm"] == "off"][0]
 
-    # The manipulated variable: corpus reachable vs. not.
+    # The manipulated variable: real guidance vs. a same-named decoy with
+    # none (issue #3280) -- both arms resolve a name and dispatch, but
+    # only the on arm's SKILL.md carries a body.
     assert on["skill_files"] != []
     assert all(f.get("sha256") for f in on["skill_files"])
-    assert off["skill_files"] == []
-    assert off["absence_check"]["skills_root_exists"] is False
+    assert off["skill_files"] != []
+    assert off["decoy"]["has_body_guidance"] is False
+    on_md = next(f for f in on["skill_files"] if f["path"] == "skill-a/SKILL.md")
+    off_md = next(f for f in off["skill_files"] if f["path"] == "skill-a/SKILL.md")
+    assert on_md["sha256"] != off_md["sha256"]
 
     # Isolation infrastructure differs (fresh HOME per arm) but the
     # dispatch shape itself -- argv template -- is identical, so nothing
@@ -128,6 +217,49 @@ def test_arms_differ_only_in_manipulated_variable(populated_skills_root):
     assert manifest["dispatch"]["argv_identical_across_arms"] is True
     assert set(manifest["dispatch"]["env_keys_that_differ_by_arm"]) == {
         "HOME", manifest["skills_root_env_var"]}
+
+
+def test_on_arm_mounts_only_the_named_skill(populated_skills_root):
+    """Round 8 mid-flight correction: the on arm used to mount the
+    entire registry (352 files against the off arm's 1). R007 asks
+    what ONE skill is worth, so the on arm must mount exactly
+    `skill_name` -- not `skill-b`, which is also present in the real
+    corpus but not under test."""
+    manifest, created_dirs = prepare_arms.build_manifest(
+        populated_skills_root, "skill-a", "sonnet", "test-operator")
+    on = [a for a in manifest["arms"] if a["arm"] == "on"][0]
+    off = [a for a in manifest["arms"] if a["arm"] == "off"][0]
+    prepare_arms._cleanup(created_dirs)
+
+    on_paths = {f["path"] for f in on["skill_files"]}
+    assert on_paths == {"skill-a/SKILL.md"}
+    assert "skill-b/SKILL.md" not in on_paths
+
+    # The exactly-one-difference property the issue asks for: same file
+    # count on both sides, differing only in skill-a/SKILL.md's content.
+    assert len(on["skill_files"]) == len(off["skill_files"])
+
+
+def test_build_manifest_rejects_unequal_file_counts(
+        tmp_path, populated_skills_root, monkeypatch):
+    """If a future change makes the arms' file sets diverge again,
+    build_manifest must refuse rather than silently emit a manifest a
+    scored result cannot be attributed to."""
+    real_off = prepare_arms.make_off_arm
+
+    def _bloated_off_arm(home, skills_root_on, skill_name):
+        arm = real_off(home, skills_root_on, skill_name)
+        extra = Path(arm["skills_root"]) / "extra-file.md"
+        extra.write_text("unrelated extra file\n", encoding="utf-8")
+        arm["skill_files"] = prepare_arms.resolve_skill_files(
+            Path(arm["skills_root"]))
+        return arm
+
+    monkeypatch.setattr(prepare_arms, "make_off_arm", _bloated_off_arm)
+    with pytest.raises(prepare_arms.ArmPreparationError,
+                        match="different file counts"):
+        prepare_arms.build_manifest(
+            populated_skills_root, "skill-a", "sonnet", "test-operator")
 
 
 def test_on_arm_rejects_empty_corpus(tmp_path):
