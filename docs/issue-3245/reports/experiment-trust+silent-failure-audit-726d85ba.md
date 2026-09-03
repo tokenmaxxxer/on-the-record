@@ -324,6 +324,29 @@ post-dispatch synthesis against the arm homes still on disk (uncleaned,
 since the crash happened before `prepare_arms._cleanup()`), rather than
 burning a second real dispatch to reproduce the same data.
 
+## Addendum (mid-round amendment)
+
+amendments-reconciled: issuecomment-5520832047 (orchestrator, posted
+2026-09-03T05:12:38Z, read this session via `gh api repos/tokenmaxxxer/
+on-the-record/issues/comments/5520832047`) -- observed this session's
+own intermediate scratch artifact (`gate_result_round4.json`, an
+un-committed working file from before bug 2's fix, since deleted) and
+independently named the exact same defect as bug 2 in §1 above (`gh pr
+list -R <local-path>` needs an `owner/repo` slug, not a filesystem
+path), with the request to check for any other `-R` call sites in the
+harness rather than fixing one per round.
+
+Already addressed by the time this comment landed: bug 2's fix
+(`_github_slug_from_local_repo()`) was committed in
+`2598f674fdea1a556b91e925c919f8e473d17de2`, before this comment's
+timestamp. derived: `grep -rn '"-R"' scripts/consumer-path/*.py
+scripts/issue-3127/*.py` (this session, this turn) -- result: exactly
+one `-R` call site in the whole harness
+(`scripts/issue-3127/run_consumer_pair.py:544`, inside
+`_discover_arm_branch()`), the same one bug 2 already fixes by
+resolving the slug before it reaches that call. No other `-R` sites
+exist to check.
+
 ## Upstream basis
 
 canonical: this session's own tool transcript, this turn, for every
