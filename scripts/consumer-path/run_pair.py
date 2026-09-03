@@ -189,6 +189,40 @@ def _rebase_workspace_to_arm_home(workspace: Path | None,
     return Path(arm_home) / ".tokenmaxxxer" / "work" / workspace.name
 
 
+def _locate_arm_workspace(arm_home: str, issue: int,
+                           computed: Path | None) -> tuple[Path | None, str]:
+    """Find the arm's real workspace instead of reconstructing its name.
+
+    `arm_workspace_dir()` rebuilds the leaf from repo, skill and a hash.
+    That name matched on pair 01 and did not on pair 02, and the failure
+    reads as "no session log found" -- H1 refuses the pair, correctly, for
+    a reason that is about this harness rather than about the experiment.
+    A name derived twice is a name that can disagree with itself; the
+    directory is right there, so look.
+
+    Returns `(workspace, note)`. Ambiguity is reported, never resolved by
+    picking one: two workspaces for one issue in one isolated HOME means
+    something dispatched twice, and averaging over that would be worse
+    than refusing.
+    """
+    base = Path(arm_home) / ".tokenmaxxxer" / "work"
+    try:
+        found = sorted(d for d in base.glob(f"*issue-{issue}-*") if d.is_dir())
+    except OSError as exc:
+        return computed, f"could not list {base}: {exc}"
+    if len(found) == 1:
+        note = ("" if computed and found[0] == computed
+                else f"located {found[0].name} (computed name was "
+                     f"{computed.name if computed else 'none'})")
+        return found[0], note
+    if not found:
+        return computed, (f"no workspace for issue {issue} under {base} -- "
+                          "falling back to the computed name")
+    return computed, (f"{len(found)} workspaces for issue {issue} under "
+                      f"{base}: {[d.name for d in found]} -- refusing to "
+                      "guess which one this arm produced")
+
+
 def _skills_argument(skill_name: str, arm: str) -> str:
     """Bare name for "on" (byte-identical to production usage); the
     `skill-repo:` source qualifier for "off" so resolution reads ONLY
@@ -641,10 +675,16 @@ def run_pair(pair_id: str, repo: str, skill_name: str, model: str,
     plan_shim.skill_name = skill_name
     on_home = [a for a in manifest["arms"] if a["arm"] == "on"][0]["home"]
     off_home = [a for a in manifest["arms"] if a["arm"] == "off"][0]["home"]
-    workspace_on = _rebase_workspace_to_arm_home(
-        rcp.arm_workspace_dir(plan_shim, on_issue), on_home)
-    workspace_off = _rebase_workspace_to_arm_home(
-        rcp.arm_workspace_dir(plan_shim, off_issue), off_home)
+    workspace_on, note_on = _locate_arm_workspace(
+        on_home, on_issue,
+        _rebase_workspace_to_arm_home(
+            rcp.arm_workspace_dir(plan_shim, on_issue), on_home))
+    workspace_off, note_off = _locate_arm_workspace(
+        off_home, off_issue,
+        _rebase_workspace_to_arm_home(
+            rcp.arm_workspace_dir(plan_shim, off_issue), off_home))
+    workspace_notes = {k: v for k, v in
+                       (("on", note_on), ("off", note_off)) if v}
 
     github_slug = _github_slug_from_local_repo(repo) or repo
 
@@ -681,6 +721,8 @@ def run_pair(pair_id: str, repo: str, skill_name: str, model: str,
         gated["h2_unavailable_reason"] = gated["h2"]["h2_unavailable_reason"]
         gated["h2"] = None
 
+    if workspace_notes:
+        gated["workspace_location_notes"] = workspace_notes
     gated["manifest"] = str(manifest_path)
     gated["transport"] = str(transport_path)
     gated["manipulation_check"] = pre_dispatch_verdict

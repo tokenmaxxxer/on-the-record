@@ -248,6 +248,21 @@ def build_decoy_skill_root(skill_name: str, real_skill_md: Path,
     decoy_skill_dir = decoy_root / skill_name
     decoy_skill_dir.mkdir(parents=True)
     (decoy_skill_dir / "SKILL.md").write_text(decoy_text, encoding="utf-8")
+    # Issue #3245: mirror the real skill's whole file set, not just
+    # SKILL.md. A skill with a `references/` directory made the two arms
+    # mount different file counts (4 vs 2 for code-architecture, 3 vs 2 for
+    # experiment-trust), and the trust root refused the pair -- correctly,
+    # since a scored difference could then be attributed to the file count
+    # rather than to the guidance. Every companion file gets a same-named
+    # placeholder, so the arms differ in content and in nothing else.
+    for real in sorted(real_skill_md.parent.rglob("*")):
+        if not real.is_file() or real == real_skill_md:
+            continue
+        mirrored = decoy_skill_dir / real.relative_to(real_skill_md.parent)
+        mirrored.parent.mkdir(parents=True, exist_ok=True)
+        mirrored.write_text(
+            "placeholder -- this arm's copy of this file carries no "
+            "guidance (issue #3245 control arm)\n", encoding="utf-8")
     if skills_root_on is not None:
         _copy_real_policy_skills(skills_root_on, decoy_root)
     return decoy_root
