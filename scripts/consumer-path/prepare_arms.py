@@ -232,6 +232,40 @@ def build_manifest(skills_root_on: Path, skill_name: str, model: str,
     return manifest, created_dirs
 
 
+def provision_credentials(home: Path, source_home: Path | None = None) -> dict:
+    """Copy ONLY `~/.claude/.credentials.json` into an arm's isolated HOME.
+
+    Nothing else -- no `settings.json`, no plugin or marketplace
+    registration, no `.claude.json` -- so a `claude -p` call under this
+    arm's freshly created HOME can authenticate without widening the trust
+    root's isolation beyond auth itself.
+
+    Two independent verifications traced R007's "0 of 5 pairs scored"
+    outcome to exactly this gap: every arm's `claude -p` subprocess failed
+    on "Not logged in" before any hook, and before the on/off skill
+    manipulation, ever ran. `spawn.py doctor()`'s coarser check then
+    reported it as a hook-firing regression -- a wrong diagnosis produced
+    by a failure that never named itself.
+
+    Returns paths and a verdict, never credential content: nothing here
+    reaches the manifest, the transport record, or any committed artifact.
+    A missing source file is reported rather than skipped -- the caller
+    decides whether that is fatal to the pair; this function never
+    fabricates success.
+    """
+    source_home = source_home or Path.home()
+    source = source_home / ".claude" / ".credentials.json"
+    if not source.is_file():
+        return {"provisioned": False, "source": str(source),
+                "reason": f"no credentials file at {source}"}
+    dest_dir = home / ".claude"
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    dest = dest_dir / ".credentials.json"
+    dest.write_bytes(source.read_bytes())
+    dest.chmod(0o600)
+    return {"provisioned": True, "source": str(source), "dest": str(dest)}
+
+
 def _cleanup(dirs: list[Path]) -> None:
     """Best-effort removal of this run's own temporary HOMEs. A failure
     here does not change the manifest already written, but is reported
