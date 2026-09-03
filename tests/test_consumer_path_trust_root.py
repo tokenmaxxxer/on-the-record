@@ -108,6 +108,35 @@ def test_build_decoy_skill_root_drops_body(tmp_path, populated_skills_root):
     assert decoy_md.read_bytes() != real.read_bytes()
 
 
+def test_build_decoy_skill_root_copies_real_policy_skills(
+        tmp_path, populated_skills_root, monkeypatch):
+    """Round 7 live finding: a decoy root holding only the manipulated
+    skill still refused to dispatch -- `resolve_static_policy_source()`
+    resolves `_STATIC_POLICY_SKILLS` against the same repo_root every
+    issue-scoped `--skills` spawn uses, fail-closed if any name is
+    missing. The decoy root must also carry a verbatim copy of those
+    names from the real corpus."""
+    monkeypatch.setattr(prepare_arms._skills_mod, "_STATIC_POLICY_SKILLS",
+                         {"skill-b"})
+    real = populated_skills_root / "skill-a" / "SKILL.md"
+    decoy_root = prepare_arms.build_decoy_skill_root(
+        "skill-a", real, populated_skills_root)
+    policy_copy = decoy_root / "skill-b" / "SKILL.md"
+    assert policy_copy.is_file()
+    assert policy_copy.read_bytes() == \
+        (populated_skills_root / "skill-b" / "SKILL.md").read_bytes()
+
+
+def test_build_decoy_skill_root_skips_absent_policy_skill(
+        tmp_path, populated_skills_root, monkeypatch):
+    monkeypatch.setattr(prepare_arms._skills_mod, "_STATIC_POLICY_SKILLS",
+                         {"no-such-policy-skill"})
+    real = populated_skills_root / "skill-a" / "SKILL.md"
+    decoy_root = prepare_arms.build_decoy_skill_root(
+        "skill-a", real, populated_skills_root)
+    assert not (decoy_root / "no-such-policy-skill").exists()
+
+
 def test_build_decoy_skill_root_rejects_missing_source(tmp_path):
     with pytest.raises(prepare_arms.ArmPreparationError):
         prepare_arms.build_decoy_skill_root(

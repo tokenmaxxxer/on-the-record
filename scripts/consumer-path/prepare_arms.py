@@ -33,6 +33,17 @@ but none of its body guidance (so the session gets nothing from it).
 `make_off_arm()` fails closed if the decoy would be byte-identical to
 the real file (a front-matter-only real skill has no body to strip).
 
+Round 7, second live finding: a decoy root holding only the one
+manipulated skill still refused to dispatch -- `skills.py`'s
+`resolve_static_policy_source()` unconditionally resolves
+`_STATIC_POLICY_SKILLS` (currently `{'work-in-english'}`) against the
+SAME repo_root every issue-scoped `--skills` spawn uses, regardless of
+what was asked for, and a repo_root missing that name is a fail-closed
+`sys.exit`, not a warning. So the decoy root also gets a verbatim, real
+copy of every POLICY skill directory from the "on" arm's real corpus --
+that baseline is not the manipulated variable and must be identical
+across arms, unlike the one named skill.
+
 Both arms get an isolated, freshly created temporary HOME
 (`tempfile.mkdtemp`, cleaned up by this process before it exits -- never a
 previous run's HOME, never reused). The manifest records, per arm: the arm
@@ -71,12 +82,17 @@ import getpass
 import hashlib
 import json
 import re
+import shutil
 import sys
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent.parent
+sys.path.insert(0, str(ROOT))
+import skills as _skills_mod  # noqa: E402 -- only for _STATIC_POLICY_SKILLS,
+# a plain module-level constant; none of _skills_mod's functions that need
+# the spawn.py-injected `_sp` alias are called from this file.
 
 ARM_ON = "on"
 ARM_OFF = "off"
@@ -141,13 +157,39 @@ def front_matter_block(skill_md_text: str) -> str:
     return m.group(0) if m else "---\nname: (unknown)\n---\n"
 
 
-def build_decoy_skill_root(skill_name: str, real_skill_md: Path) -> Path:
+def _copy_real_policy_skills(skills_root_on: Path, decoy_root: Path) -> list[str]:
+    """Copies every POLICY skill (`skills._STATIC_POLICY_SKILLS`) from the
+    "on" arm's real corpus into the decoy root verbatim, unmanipulated.
+    Required for the off arm to dispatch at all: `resolve_static_policy_
+    source()` resolves this fixed name set against the same repo_root
+    every issue-scoped `--skills` spawn uses, fail-closed (`sys.exit`) if
+    any is missing -- live-reproduced this round, the off arm's first
+    real dispatch attempt refused with "unknown skill work-in-english"
+    once the decoy root held only the one manipulated skill. These names
+    are not the manipulated variable (every spawn gets them regardless of
+    `--skills`), so they are copied whole, never decoyed. Silently skips
+    a name absent from `skills_root_on` itself -- nothing this function
+    can fabricate a real copy of, and `resolve_static_policy_source()`
+    will raise its own clear error downstream if that absence matters."""
+    copied = []
+    for name in sorted(_skills_mod._STATIC_POLICY_SKILLS):
+        src = skills_root_on / name
+        if src.is_dir():
+            shutil.copytree(src, decoy_root / name)
+            copied.append(name)
+    return copied
+
+
+def build_decoy_skill_root(skill_name: str, real_skill_md: Path,
+                            skills_root_on: Path | None = None) -> Path:
     """Issue #3280: a fresh directory containing `<skill_name>/SKILL.md`
     with `real_skill_md`'s front matter copied verbatim and its body
-    dropped. Raises `ArmPreparationError` if `real_skill_md` does not
-    exist, or if it carries no body beyond its front matter (a decoy of
-    it would be byte-identical to the real thing, which would prove
-    nothing about the manipulated variable)."""
+    dropped, plus a verbatim copy of every POLICY skill (see
+    `_copy_real_policy_skills()`) when `skills_root_on` is given. Raises
+    `ArmPreparationError` if `real_skill_md` does not exist, or if it
+    carries no body beyond its front matter (a decoy of it would be
+    byte-identical to the real thing, which would prove nothing about the
+    manipulated variable)."""
     if not real_skill_md.is_file():
         raise ArmPreparationError(
             f"cannot build the 'off' arm's decoy -- {real_skill_md} does "
@@ -164,6 +206,8 @@ def build_decoy_skill_root(skill_name: str, real_skill_md: Path) -> Path:
     decoy_skill_dir = decoy_root / skill_name
     decoy_skill_dir.mkdir(parents=True)
     (decoy_skill_dir / "SKILL.md").write_text(front_matter, encoding="utf-8")
+    if skills_root_on is not None:
+        _copy_real_policy_skills(skills_root_on, decoy_root)
     return decoy_root
 
 
@@ -210,7 +254,7 @@ def make_off_arm(home: Path, skills_root_on: Path, skill_name: str) -> dict:
     (`build_manifest()`) is responsible for adding it to the dirs it
     cleans up, exactly like the arm's HOME."""
     decoy_root = build_decoy_skill_root(
-        skill_name, skills_root_on / skill_name / "SKILL.md")
+        skill_name, skills_root_on / skill_name / "SKILL.md", skills_root_on)
     skill_files = resolve_skill_files(decoy_root)
     if not skill_files:
         raise ArmPreparationError(
