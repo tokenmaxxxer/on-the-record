@@ -138,6 +138,14 @@
       "rationale": "the merged per-skill verdict obligation gate (issue #2039/#2138) -- absence means a session's skill-verdict obligation goes unchecked and unreported"
     },
     {
+      "event": "Stop",
+      "script": "delegation-live-check.sh",
+      "args": [],
+      "wrapped": true,
+      "class": "invariant-injecting",
+      "rationale": "issue #3229: live wiring for issue #3061's standing-delegation manifest -- on a covered, clean episode it refuses the stop outright (decision:\"block\"); absence means a covered ask reaches the operator that a recorded delegation already answered, the exact gap PR #3220's tenth verification named"
+    },
+    {
       "event": "PostToolUse",
       "script": "amendment-channel.sh",
       "args": [],
