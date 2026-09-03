@@ -107,6 +107,41 @@ fi
 # launched", not "a tick completed". directive.sh computes the identical
 # hash from its own `pwd -P` at hook-fire time -- same cwd, no shared
 # state file, no IPC.
+# issue #3293: OWNER TOKEN. Every session's heartbeat used to have a
+# byte-identical command line and share one workspace-keyed alive marker,
+# so nothing told this session's heartbeat apart from a neighbour's. Both
+# consequences were observed on 2026-09-03: a session tidying what it
+# reasonably read as duplicate heartbeats killed another session's with a
+# `pkill -f` pattern that cannot be narrowed, and an orchestrator wanting
+# to stop only its own had no way to name it.
+#
+# The token is this process's pid plus its start tick -- the pid-reuse-proof
+# pairing `roster.py::_paired_liveness()` already trusts, since the OS will
+# not hand out that combination twice. Exported so children see it, and
+# echoed once so an operator can match a heartbeat to the session that
+# armed it.
+if [ -z "${OTR_MONITOR_OWNER:-}" ]; then
+  OTR_MONITOR_OWNER="$(python3 -c '
+import sys
+pid = sys.argv[1]
+try:
+    with open("/proc/%s/stat" % pid, "r", encoding="utf-8") as f:
+        raw = f.read()
+    start = raw[raw.rfind(")") + 2:].split()[19]
+except (OSError, IndexError, ValueError):
+    start = "nostat"
+print("%s.%s" % (pid, start))
+' "$$" 2>/dev/null)"
+  [ -n "${OTR_MONITOR_OWNER}" ] || OTR_MONITOR_OWNER="$$.unknown"
+fi
+export OTR_MONITOR_OWNER
+# Recorded, not printed. Startup stdout is the Monitor's event stream and
+# several tests pin it to empty at arm time; an owner line there would be a
+# per-session banner in a channel reserved for things worth waking for. The
+# token is still discoverable two ways that do not cost a wake:
+# `spawn.py monitor-list`, and this log.
+OTR_MONITOR_OWNER_NOTE="[poll-heartbeat] owner=${OTR_MONITOR_OWNER} pid=$$ -- stop only this one: python3 ${CHECKOUT}/spawn.py monitor-stop --owner ${OTR_MONITOR_OWNER}"
+
 _alive_dir="$(PWD_P="$(pwd -P)" python3 -c '
 import hashlib, os
 root = os.environ.get("PWD_P", "")
@@ -116,6 +151,13 @@ print(os.path.join(os.path.expanduser("~/.claude/tokenmaxxxer/monitor-alive"), h
 if [ -n "${_alive_dir}" ]; then
   mkdir -p "${_alive_dir}" 2>/dev/null && \
     touch "${_alive_dir}/alive" 2>/dev/null || true
+  # issue #3293: an owner-scoped marker alongside the shared one. The
+  # shared `alive` stays exactly as it was -- directive.sh's degradation
+  # check reads it and is not in this change's scope -- but a per-owner
+  # file lets a session prove which heartbeat is its own.
+  if [ -n "${OTR_MONITOR_OWNER:-}" ]; then
+    printf '%s\n' "$$" > "${_alive_dir}/owner-${OTR_MONITOR_OWNER}" 2>/dev/null || true
+  fi
 fi
 
 # issue #1465: GC stale monitor-alive marker dirs on heartbeat startup,
@@ -475,6 +517,9 @@ _alive_stamp_write() {
     fi
   fi
 }
+
+# issue #3293: record the owner token now that the log helper exists.
+_poll_watchdog_log_append "${OTR_MONITOR_OWNER_NOTE}"
 
 tick=0
 max_ticks="${POLL_HEARTBEAT_MAX_TICKS:-0}"

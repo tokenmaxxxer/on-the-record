@@ -2269,6 +2269,10 @@ def main() -> int:
                     help="이 스폰 한 번만 쓸 모델 오버라이드: --model > "
                          "MUSTER_SKILL_MODEL > role_model.txt > \"sonnet\" (이슈#1736). "
                          "judge prefilter/validator 의 하드코딩 haiku 는 영향받지 않는다")
+    ap.add_argument("--owner", default=None,
+                    help="monitor-stop: 멈출 하트비트의 소유자 토큰 "
+                         "(<pid>.<start>). spawn.py monitor-list 로 확인한다 — "
+                         "이 토큰 없이는 거절한다(이슈 #3293)")
     ap.add_argument("--cross-family-skills", default=None,
                     help="cross-family-deliver 전용: 워커의 스킬 CSV 를 "
                          "데이터로 넘긴다. --skills 를 쓰지 않는 이유는 "
@@ -2671,6 +2675,37 @@ def main() -> int:
         # poll hooks — deliberately independent of the watchdog process.
         # rc is the advisory count (0 fresh / 1 stale), never a block.
         return deadman_check()
+    if a.role in ("monitor-list", "monitor-stop"):
+        # Issue #3293: the orchestrator's own handle on its own heartbeat.
+        # Every session's heartbeat used to look identical in the process
+        # table, so the only way to stop one was a host-wide `pkill -f`
+        # that hit every other session's too -- which happened, in both
+        # directions, on 2026-09-03. These two verbs replace that.
+        sys.path.insert(0, str(ROOT / "gates"))
+        import monitor_ownership as _mo
+        if a.role == "monitor-list":
+            found = _mo.find_owned(a.cwd)
+            if not found:
+                print(f"이 워크스페이스({a.cwd})에 등록된 하트비트 소유자 표시가 "
+                      f"없다 — 아직 아무 세션도 무장하지 않았거나, 이 세션의 "
+                      f"플러그인이 소유자 토큰을 쓰기 전 버전이다")
+                return 0
+            for e in found:
+                state = "alive" if e["alive"] else "dead/stale"
+                extra = f" — {e['reason']}" if e.get("reason") else ""
+                print(f"{e['token']}  pid={e['pid']}  {state}{extra}")
+            return 0
+        if not a.owner:
+            sys.exit("사용법: spawn.py monitor-stop --owner <token> "
+                      "(토큰은 spawn.py monitor-list 또는 하트비트가 시작할 때 "
+                      "찍는 owner= 줄에서 얻는다). 패턴으로 죽이지 않는다 — "
+                      "그게 이슈 #3293 이 없애려는 바로 그 동작이다")
+        res = _mo.stop_owned(a.owner, a.cwd)
+        if not res["stopped"]:
+            sys.exit(f"하트비트를 멈추지 않았다: {res['reason']}")
+        note = f" ({res['reason']})" if res.get("reason") else ""
+        print(f"멈췄다: owner={res['token']} pid={res['pid']}{note}")
+        return 0
     if a.role == "gc-monitor-alive":
         return monitor_alive_gc_cli(Path(a.cwd).resolve())
     if a.role == "reconcile":
