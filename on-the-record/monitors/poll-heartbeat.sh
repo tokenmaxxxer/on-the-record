@@ -537,6 +537,18 @@ sleep_seconds="${POLL_HEARTBEAT_SLEEP_SECONDS:-120}"
 while true; do
   sleep "${sleep_seconds}"
   _alive_stamp_write
+  # Issue #3278 layer 2: refresh the liveness marker EVERY tick. It was
+  # written once at startup and never again, so directive.sh's
+  # dead-monitor check read a marker three days old while the heartbeat
+  # was running -- and a check that reads stale for a live monitor cannot
+  # fire for a dead one either. Measured before this fix: marker age
+  # 10,901s on a heartbeat that had ticked ~90 times.
+  if [ -n "${_alive_dir}" ]; then
+    touch "${_alive_dir}/alive" 2>/dev/null || true
+    if [ -n "${OTR_MONITOR_OWNER:-}" ]; then
+      printf '%s\n' "$$" > "${_alive_dir}/owner-${OTR_MONITOR_OWNER}" 2>/dev/null || true
+    fi
+  fi
   # issue #2163: CHECKOUT is resolved ONCE, above, at Monitor-session
   # startup -- it is never re-resolved per tick. A mid-session
   # `claude plugin marketplace update` (stale-directory cleanup +
