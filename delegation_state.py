@@ -886,30 +886,79 @@ def _episode_boundary(events: list[dict], event_index: int) -> int:
 # so there is nothing sound for an `all()`-over-the-preceding-stretch
 # check to ever bind it to.
 #
-# The honest resolution taken here, given no correlating field exists:
-# a turn ending in a text-only ask has, by construction, no attempted
-# action of its own (Stop only fires on a message with no tool_use),
-# and nothing in the preceding episode can be soundly bound to it
-# either. `_live_stop_decision_body()` below therefore NEVER returns
-# `suppress=True` from the previous-episode-coverage path -- that
-# branch is retired, not merely narrowed, because narrowing it (e.g. to
-# a single preceding action, or one whose own tool_result was an error)
-# would still be adjacency wearing a smaller costume: it still cannot
-# tell "the ask is about this" from "this happened to sit right before
-# the ask." Over-refusing is the correct failure direction here: this
-# hook exists to remove redundant questions, not to answer dangerous
-# ones on the operator's behalf (issue #3229 round 2 instruction,
-# mirroring the issue's own "if the seam supports only a weaker
-# mechanism, say so and deliver that, labelled honestly" framing for the
-# seam-capability question). The seam itself (a Stop hook CAN refuse a
-# stop, confirmed live above) remains wired and is exercised by the
-# crash-safety path staying fail-closed toward NOT blocking -- it simply
-# has no sound case left in which `_live_stop_decision_body()` chooses
-# to use it. `is_covered()` is still called over the preceding episode
-# so a decline can report a specific, useful reason (not covered, vs.
-# covered-but-uncorrelated) for `--audit`/operator visibility, per
-# "every path that declines to act says so where an operator can see
-# it" -- but neither outcome of that call suppresses anymore.
+# issue #3229 round 3 (PR #3248 round-2 verification, Section B):
+# round 2's blanket retirement above over-corrected. Every one of
+# `_live_stop_decision_body()`'s return sites became `suppress: False`
+# -- not narrowed, RETIRED -- so the function stopped being able to
+# suppress anything, for any input. Confirmed by PR #3248 constructing
+# the textbook redundant-ask case this hook exists for (a `git push`
+# covered by a matching grant, denied, immediately followed by "shall I
+# proceed anyway?") and watching it stay left standing. That is not a
+# narrow miss: it is the hook's entire reason for existing, permanently
+# unreachable, while the hook still runs -- and still costs latency --
+# on every single Stop event. Round 2's own comment (preserved just
+# above, for the historical record) explicitly rejected narrowing to "a
+# single preceding action, or one whose own tool_result was an error" as
+# still being adjacency in a smaller costume. That objection is not
+# wrong in the fully adversarial sense -- see the residual risk named
+# below -- but taken to its conclusion it forecloses suppression
+# categorically, for a transcript format that (round 6 of issue #3061
+# already established) carries no field that perfectly ties an ask to a
+# specific prior action, ever. A hook that can never do the one thing it
+# exists to do is not the safer alternative to a narrow, disclosed
+# residual risk; it is a different, also-real defect (this issue's own
+# instruction: "over-refusing... reads as protection while providing
+# none"). Round 3 draws the line at the ONE shape the transcript can
+# bind soundly enough to be worth the residual risk:
+#
+# `_live_stop_decision_body()` suppresses only when the episode
+# immediately preceding the ask contains EXACTLY ONE tool_use event, AND
+# that action is covered, AND its own `tool_result` (read via
+# `trajectory_analyzer.tool_result_index()`, a structural harness fact
+# about what the TOOL returned, not an inference over what the MODEL
+# wrote) reports `is_error=True`. Reasoning, both directions:
+#
+# - Why this binds soundly enough: with exactly one action in the
+#   episode, there is no OTHER candidate the ask could be about within
+#   this episode -- the round-2/PR #3236 defect needs at least two
+#   actions (or one that succeeded ordinarily) sitting between the ask
+#   and an unrelated, never-attempted danger for adjacency to be doing
+#   silent, unwarranted work. A single action that itself did NOT
+#   succeed is the structural signature of "attempted, blocked, now
+#   asking whether to proceed" -- exactly `CoveredCleanEpisodeSuppressesTest`'s
+#   own scenario, chosen as the canonical positive case since round 1.
+# - Why it is still not perfect, and the residual risk this round
+#   accepts and names rather than hides (see
+#   `SingleFailedUnrelatedActionResidualRiskTest` in
+#   tests/test_issue_3229_delegation_live_wiring.py): a single covered
+#   action can fail for a reason that has nothing to do with what the
+#   ask is actually about (a network timeout on an unrelated `curl`,
+#   immediately followed by a pivot to an entirely different, dangerous,
+#   never-attempted topic) -- is_error=True alone cannot rule that out,
+#   because nothing in the transcript format ties the FAILURE's cause to
+#   the ask's SUBJECT either. This is a real, disclosed gap, not a
+#   solved one. It is categorically narrower than the round-2 defect,
+#   though: it requires the episode to contain exactly one action AND
+#   that action to have structurally failed AND the very next utterance
+#   to abandon that failure entirely for an unrelated topic -- a
+#   composite, comparatively rare shape, versus round 2's defect surface
+#   (any covered episode at all, including the overwhelmingly common
+#   case of ordinary successful actions).
+# - Multi-action episodes are refused this path unconditionally, exactly
+#   as round 2 concluded -- adding a second (or third) action reopens the
+#   original defect regardless of whether the LAST one failed, since an
+#   earlier, successfully-covered action could just as easily be what an
+#   unrelated ask is adjacent to. Round 2's narrowing rejection is right
+#   for that shape; round 3 only takes the strictly single-action,
+#   structurally-failed case it did not fully evaluate on its own terms.
+#
+# The seam itself (a Stop hook CAN refuse a stop, confirmed live) is
+# unchanged and now has exactly one sound case that exercises it.
+# `is_covered()` is still called over the preceding episode in every
+# other case so a decline can report a specific, useful reason (not
+# covered, vs. covered-but-uncorrelated) for `--audit`/operator
+# visibility, per "every path that declines to act says so where an
+# operator can see it."
 def _previous_episode_boundary(events: list[dict], event_index: int) -> int:
     """Index right after the nearest ask-shaped stop strictly before
     `event_index`, or `0` if none is found walking back to the start of
@@ -969,17 +1018,14 @@ def _live_stop_decision_body(payload: dict, repo: str) -> dict:
     default), decide whether this Stop can be safely left standing.
 
     Returns `{"suppress": bool, "reason": str | None, "hook_output": dict
-    | None}`. issue #3229 round 2 (PR #3236 finding 4): this always
-    returns `suppress=False` -- see the module comment above for why the
-    previous-episode-coverage path that used to produce `suppress=True`
-    was retired rather than narrowed. `reason` and `hook_output` are kept
-    in the return shape (and `hook_output` stays capable of carrying
-    `{"decision": "block", ...}`) because the seam itself is still real
-    and still wired; there is simply no case left in which this function
-    chooses to use it. Every decline below still reports its own specific
-    `reason` -- the four combinations issue #3229's own must-not clause
-    names each land here, plus the fifth outcome that used to be the
-    positive case:
+    | None}`. issue #3229 round 3 (PR #3248 Section B): round 2 (PR
+    #3236 finding 4) had reduced this to always `suppress=False` -- see
+    the module comment above for the full history and why round 3
+    restores exactly one narrow, structurally-bound positive case rather
+    than leaving the hook a permanent no-op. Every decline below still
+    reports its own specific `reason` -- the five combinations issue
+    #3229's own must-not clause names each land here, plus the one
+    narrow case that now suppresses:
 
     - a delegation is on record for `repo` AND currently `in_force()`
       (an absent, revoked, or expired delegation is `reason=None` --
@@ -1008,8 +1054,14 @@ def _live_stop_decision_body(payload: dict, repo: str) -> dict:
     - and even when every action in that episode, run through
       `_extract_action()` then `is_covered()` against the recorded
       manifest, matches -- covered is not the same as correlated (see
-      module comment above), so this still declines, with a reason that
-      says so rather than silently doing nothing."""
+      module comment above), so this still declines UNLESS the episode
+      is exactly one action AND that action's own `tool_result` reports
+      `is_error=True` (read via `trajectory_analyzer.tool_result_index()`):
+      a structurally attempted-and-blocked single action is the one
+      shape this transcript format binds soundly enough to suppress on
+      (see the module comment's full reasoning and named residual risk);
+      every other covered-episode shape still declines, with a reason
+      that says so rather than silently doing nothing."""
     record = load_state(repo)
     if record is None or not in_force(record):
         return {"suppress": False, "reason": None, "hook_output": None}
@@ -1072,6 +1124,37 @@ def _live_stop_decision_body(payload: dict, repo: str) -> dict:
             "covered by the recorded manifest -- leaving the question "
             "standing")}
 
+    # issue #3229 round 3: the one shape a single-action episode's own
+    # tool_result can bind soundly -- see the module comment above for
+    # the full reasoning and the named residual risk. With exactly one
+    # action in the episode there is no OTHER candidate action within it
+    # the ask could be adjacent to instead, and `is_error=True` is a
+    # structural fact the harness recorded about what the TOOL returned,
+    # not an inference over the ask's own words. A multi-action episode
+    # never reaches this branch, regardless of whether its last action
+    # failed -- see below, unchanged from round 2.
+    if len(episode) == 1:
+        tool_results = trajectory_analyzer.tool_result_index(events)
+        result = tool_results.get(episode[0].get("tool_use_id"))
+        if result is not None and result.get("is_error"):
+            action = episode_actions[0]
+            action_desc = f"{action['tool']}:{action['resource']!r}"
+            return {"suppress": True, "reason": (
+                f"delegation-live-check: this turn's one action "
+                f"({action_desc}) is covered by the recorded standing "
+                f"delegation (scope: {record.get('scope')!r}, granted_by: "
+                f"{record.get('granted_by')}) and its own tool_result "
+                f"reports it did not succeed -- the ask that immediately "
+                f"followed is treated as a redundant re-ask about resuming "
+                f"that same already-attempted, already-covered action "
+                f"(issue #3229 round 3), so this stop is suppressed."
+            ), "hook_output": {"decision": "block", "reason": (
+                f"delegation-live-check: {action_desc} is covered by the "
+                f"standing delegation (scope: {record.get('scope')!r}) and "
+                f"was already attempted this turn -- continuing without "
+                f"re-asking."
+            )}}
+
     # issue #3229 round 2 (PR #3236 finding 4): every action in the
     # preceding episode being covered is adjacency, not correlation --
     # the transcript carries no field tying this specific ask to any
@@ -1079,7 +1162,9 @@ def _live_stop_decision_body(payload: dict, repo: str) -> dict:
     # told apart from an unrelated, never-attempted, uncovered action
     # that merely happens to sit right after a covered episode. Declines
     # like every other case, with its own reason, rather than
-    # manufacturing a binding the transcript cannot support.
+    # manufacturing a binding the transcript cannot support. (Round 3:
+    # this is still the outcome for every episode shape OTHER than the
+    # single-failed-action case handled just above.)
     covered_desc = ", ".join(f"{a['tool']}:{a['resource']!r}" for a in episode_actions)
     return {"suppress": False, "hook_output": None, "reason": (
         f"delegation-live-check: this episode's actions ({covered_desc}) "

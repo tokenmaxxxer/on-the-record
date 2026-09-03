@@ -16,15 +16,25 @@
 # no field tying a specific tool_use event to the ask that follows it
 # (issue #3061 round 6), so an episode of innocuous covered actions
 # immediately before a text-only ask about a completely different,
-# never-attempted, dangerous action got suppressed too. The seam below
-# remains real (a Stop hook CAN refuse the stop) and this script stays
-# wired to it, but `delegation_state.live_stop_decision()` no longer has
-# any case where it chooses to use it -- see that function's own module
-# comment for why the honest resolution is to never suppress rather
-# than invent a narrower adjacency heuristic. Over-refusing (leaving a
-# redundant question standing) is the correct failure direction; this
-# hook exists to remove redundant questions, not to answer dangerous
-# ones on the operator's behalf.
+# never-attempted, dangerous action got suppressed too. Round 2's own
+# fix retired suppression entirely -- every return site in
+# `delegation_state.live_stop_decision()` became `suppress: False` --
+# which closed that hole by making the hook a permanent no-op instead:
+# it never suppressed anything again, for any input, while still
+# running (and costing latency) on every Stop event (PR #3248 round-2
+# verification, Section B).
+#
+# issue #3229 round 3: restores exactly one narrow, structurally-bound
+# suppression case -- an episode of exactly ONE tool_use action, covered
+# by the manifest, whose own `tool_result` reports `is_error=True` (a
+# harness fact about what the TOOL returned, never an inference over
+# the ask's own words). See `delegation_state.py`'s own module comment
+# above `_live_stop_decision_body` for the full reasoning, including the
+# residual risk this narrowing does NOT close (a single covered action
+# that fails for a reason unrelated to a differently-shaped ask that
+# immediately follows it) -- named and tested there rather than hidden.
+# Every OTHER shape (no action, multiple actions, a succeeded action)
+# still leaves the stop untouched, unchanged from round 2.
 #
 # The seam was established experimentally before this hook was written,
 # not assumed from documentation (docs/issue-3229's record has the
