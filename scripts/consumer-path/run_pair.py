@@ -220,12 +220,29 @@ def _clean_base_env() -> dict:
 
 
 def execute_arm(argv: list[str], env_override: dict, repo: str, issue: int,
-                 arm_name: str, watch_session: str, watch_timeout_s: int,
+                 arm_name: str, watch_timeout_s: int,
                  confirm_real_spawn: bool) -> dict:
     """Lint, dispatch, then block on `spawn.py watch --follow` -- same
     shape as `run_consumer_pair.execute_arm()`, adapted to take a fully
     pre-built argv/env pair (this arm's trust-rooted HOME +
-    MUSTER_SKILL_REPO) instead of an `ArmConfig`."""
+    MUSTER_SKILL_REPO) instead of an `ArmConfig`.
+
+    `watch` is called WITHOUT `--session`: `spawn_command()`'s dispatch
+    argv never passes `--session` either (issue #2572's `--skills` form
+    only takes `--issue`), so `spawn.py`'s own `--skills` dispatch path
+    (`a.role = f"{skill_slug}-{disambiguator}"`, `spawn.py` ~line 2511)
+    always assigns a fresh lease-disambiguated session name this process
+    never learns -- passing the bare skill name to `--session` (this
+    function's first version) never matches it, live-reproduced as
+    `watch-failed`/"기록 없음 -- 아직 스폰된 적이 없다" even though
+    `dispatch_returncode` was 0 and a real session was running
+    (`docs/issue-3245/_assets/01-study-groups/result.json`, this run).
+    Omitting `--session` makes `events._lookup_roster_entry()` match by
+    `--issue`/`-C repo` alone and auto-select the single *live* match
+    when more than one roster entry exists for that issue (a pre-existing
+    non-trust-rooted PR's dead entry plus this run's live one, exactly
+    the case here) -- the same fallback `spawn.py watch`'s own usage
+    text documents `--session` as optional for."""
     if not confirm_real_spawn:
         raise RuntimeError(
             "execute_arm() requires confirm_real_spawn=True -- this "
@@ -254,8 +271,7 @@ def execute_arm(argv: list[str], env_override: dict, repo: str, issue: int,
     try:
         watch = subprocess.run(
             ["python3", "spawn.py", "watch", "--issue", str(issue),
-             "--session", watch_session, "--follow", "--self-heal",
-             "-C", repo],
+             "--follow", "--self-heal", "-C", repo],
             cwd=ROOT, env=env, capture_output=True, text=True,
             timeout=watch_timeout_s)
     except subprocess.TimeoutExpired:
@@ -404,7 +420,7 @@ def run_pair(pair_id: str, repo: str, skill_name: str, model: str,
         argv = transport["arms"][arm_name]["argv"]
         env_override = transport["arms"][arm_name]["env"]
         arm_results[arm_name] = execute_arm(
-            argv, env_override, repo, issue, arm_name, skill_name,
+            argv, env_override, repo, issue, arm_name,
             watch_timeout_s, confirm_real_spawn)
 
     prepare_arms._cleanup(created_dirs)
