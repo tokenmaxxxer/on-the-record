@@ -246,14 +246,14 @@ CHECKS = [
             "reporting a supported sys.platform."
         ),
         "source": (
-            "spawn.py:4932 (os.fork()/os.setsid() drives _spawn_one(), the "
+            "spawn.py:4935 (os.fork()/os.setsid() drives _spawn_one(), the "
             "real role-session spawn path); the same fork+setsid+dup2 "
-            "pattern also appears at spawn.py:2769 (background "
+            "pattern also appears at spawn.py:2772 (background "
             "validity-consult, a different feature that mirrors it)"
         ),
         "line_anchors": [
-            ("spawn.py", 4932, "os.fork()"),
-            ("spawn.py", 2769, "os.fork()"),
+            ("spawn.py", 4935, "os.fork()"),
+            ("spawn.py", 2772, "os.fork()"),
         ],
     },
     {
@@ -262,12 +262,12 @@ CHECKS = [
         "remedy": "Install the Claude Code CLI so `claude` resolves on PATH.",
         "source": (
             'pipeline.py:661 (spawn_cmd builds cmd = ["claude", "-p", ...]); '
-            "spawn.py:5054 (_spawn_one() is what actually execs it, via "
+            "spawn.py:5057 (_spawn_one() is what actually execs it, via "
             "subprocess.Popen(cmd, ...))"
         ),
         "line_anchors": [
             ("pipeline.py", 661, 'cmd = ["claude"'),
-            ("spawn.py", 5054, "subprocess.Popen("),
+            ("spawn.py", 5057, "subprocess.Popen("),
         ],
     },
     {
@@ -371,18 +371,18 @@ CHECKS = [
             "MUSTER_SKIP_SPACE_CHECK=1."
         ),
         "source": (
-            "spawn.py:735-768 (_spawn_capacity_check: shutil.disk_usage() at "
-            "spawn.py:746, sys.exit() at spawn.py:751 when free bytes fall "
+            "spawn.py:738-771 (_spawn_capacity_check: shutil.disk_usage() at "
+            "spawn.py:749, sys.exit() at spawn.py:754 when free bytes fall "
             "below MIN_FREE_BYTES_DEFAULT, os.statvfs() inode check follows "
             "and sys.exit()s again if free inodes fall below "
-            "MIN_FREE_INODES_DEFAULT) -- called at spawn.py:3361, before "
+            "MIN_FREE_INODES_DEFAULT) -- called at spawn.py:3364, before "
             "every workspace clone attempt"
         ),
         "line_anchors": [
-            ("spawn.py", 735, "def _spawn_capacity_check"),
-            ("spawn.py", 746, "shutil.disk_usage"),
-            ("spawn.py", 751, "sys.exit("),
-            ("spawn.py", 3361, "_spawn_capacity_check(work)"),
+            ("spawn.py", 738, "def _spawn_capacity_check"),
+            ("spawn.py", 749, "shutil.disk_usage"),
+            ("spawn.py", 754, "sys.exit("),
+            ("spawn.py", 3364, "_spawn_capacity_check(work)"),
         ],
     },
 ]
