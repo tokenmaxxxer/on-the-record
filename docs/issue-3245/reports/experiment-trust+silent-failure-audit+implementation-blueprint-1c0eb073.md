@@ -121,5 +121,22 @@ unstaged `M` changes.
 (pending re-run by the session that performs step 1)
 ```
 
+## Landing status
+
+Despite the `gh auth status` failure recorded above, `git push` to the HTTPS
+origin succeeded (git's own credential path differs from gh's token) —
+derived: `git push -u origin
+issue-3245/experiment-trust+silent-failure-audit+implementation-blueprint-1c0eb073`
+— result: "new branch ... -> issue-3245/...", branch now on origin at commit
+`573f9eac`. `gh pr create` then failed, not with an auth error but with a
+GitHub API rate-limit exhaustion — derived: `gh api rate_limit` — result:
+```
+"core":{"limit":5000,"used":5000,"remaining":0,"reset":1788407354}
+```
+`date -d @1788407354` — result: 2026-09-03 12:49:14 KST, about 38 minutes
+after this check (`date` at check time: 2026-09-03 12:11:23 KST). No PR was
+opened this session; the branch is pushed and ready for a PR once the rate
+limit resets or a session with separate quota opens one.
+
 skill-verdict: work-in-english — not-applicable: no repository work (code, commits, PR text) was performed this session; nothing to translate.
 other mounted skills: not triggered
