@@ -449,23 +449,39 @@ reopen PR #3235's shipped code; the two open findings above (SSH
 passphrase generalization gap, round 3's incomplete sweep inventory) are
 follow-up material, not blockers.
 
-skill-verdict: adversarial-review — applied: invoked; treated round 3's
-own record and its "no other site found" sweep claim as artifacts to
-adversarially re-check rather than trust, which is what surfaced Open
-finding 2 above.
-skill-verdict: silent-failure-audit — applied: invoked; classified the
-SSH-passphrase gap and the three missed sweep sites by the same
-Handled/Silently-Absorbed/Unreachable framing this skill uses — the SSH
-path is a genuinely unreachable-today gap (hardcoded URL, section 4
-above), the three missed sweep sites are pre-existing
-Silently-Absorbed-via-accidental-timeout call sites this round's scope
-correctly did not touch.
-skill-verdict: test-depth-audit — applied: invoked; the kill-mid-clone
-spot re-check (section 6) is exactly a test-depth question (does the
-existing regression evidence still hold, or was it Execution-Only luck)
-— graded the re-check itself Inconclusive rather than silently upgrading
-or downgrading the prior rounds' Genuine-Assertion-grade evidence on the
-strength of a single fast/inconclusive rerun.
+skill-verdict: adversarial-review — applied: invoked; loaded the skill
+this turn. canonical: section 5 above's `derived:` git-blame citations
+for `board.py:1058`, `on-the-record/hooks/git-push-guard.sh:298`,
+`scripts/issue-3041/run_pair.sh:74` (this session) are the concrete
+product of applying the skill's core principle — round 3's own record
+and its "no other site found" sweep claim were treated as artifacts to
+adversarially re-derive rather than trust, which is what surfaced Open
+finding 2 above. Did not run the skill's literal two-session
+blind-evaluator protocol (a fresh subagent given the artifact only, no
+spec) — this session's own role already provides the structural
+independence from PR #3235's builder session that protocol exists to
+manufacture, so the "is the evaluator reviewing its own work?" precondition
+does not hold here.
+skill-verdict: silent-failure-audit — applied: invoked; loaded the skill
+this turn and used its Handled/Silently-Absorbed/Unreachable
+classification taxonomy (not its full file:line error-handling-site
+enumeration procedure, which targets an implementation's own catch
+blocks rather than a verification session's findings) on the SSH-passphrase
+gap and the three missed sweep sites (canonical: section 4 and Open
+finding 1 above for the SSH gap's own `derived:`/`canonical:` evidence;
+section 5 above for the three sites') — the SSH path is a genuinely
+unreachable-today gap (hardcoded URL), the three missed sweep sites are
+pre-existing Silently-Absorbed-via-accidental-timeout call sites this
+round's scope correctly did not touch.
+skill-verdict: test-depth-audit — applied: invoked; loaded the skill this
+turn and used its Genuine-Assertion vs. Execution-Only distinction (not
+its full test-suite enumeration procedure, which targets a committed
+test suite rather than a single ad hoc regression re-check) on the
+kill-mid-clone spot re-check. canonical: section 6 above's `derived:`
+result (`killed pid ... (comm=git) at iter 3` yet the corpus still ended
+up fully present) is what this session graded Inconclusive rather than
+silently upgrading or downgrading the prior rounds' Genuine-Assertion-
+grade evidence on the strength of that single fast/inconclusive rerun.
 skill-verdict: defect-verification-independence-from-upstream-verdicts —
 applied: invoked; every acceptance number, the credential-prompt repro,
 and the sweep were re-run by this session rather than cited from round 2
