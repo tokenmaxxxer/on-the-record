@@ -296,6 +296,25 @@ def run_pair(pair_id: str, repo: str, skill_name: str, model: str,
         return {"pair_id": pair_id, "status": "manifest-preparation-failed",
                 "reason": str(exc), "excluded_from_h2": True,
                 "exclusion_reason": str(exc), "h2": None}
+    unprovisioned = [a["arm"] for a in manifest["arms"]
+                     if not a.get("credentials", {}).get("provisioned")]
+    if unprovisioned:
+        # Fail closed before spawning anything: an arm dispatched under a
+        # HOME with no credentials fails "Not logged in" on its first
+        # `claude -p` call, which `spawn.py doctor()` misreports as a
+        # hook-firing regression (docs/issue-3245/reports/
+        # independent-verification-1.md, -2.md both traced 0/5 pairs
+        # scored to exactly this, not a CLI defect). Checking here turns
+        # that into a named, attributable exclusion instead of a real
+        # dispatch burned on a doomed subprocess call.
+        prepare_arms._cleanup(created_dirs)
+        reasons = {a["arm"]: a.get("credentials", {}).get("reason")
+                   for a in manifest["arms"] if a["arm"] in unprovisioned}
+        return {"pair_id": pair_id, "status": "credentials-provisioning-failed",
+                "reason": f"arm(s) {unprovisioned} not provisioned: {reasons}",
+                "excluded_from_h2": True,
+                "exclusion_reason": f"arm(s) {unprovisioned} not provisioned: {reasons}",
+                "h2": None}
     manifest_path = out_dir / "manifest.json"
     manifest_text = prepare_arms.render_manifest_json(manifest)
     manifest_path.write_text(manifest_text, encoding="utf-8")

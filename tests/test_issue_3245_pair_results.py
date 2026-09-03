@@ -116,6 +116,31 @@ def test_build_transport_verifies_clean_against_prepare_arms_manifest(
     assert verdict["pair_excluded"] is False
 
 
+# --- run_pair() fails closed before dispatch when credentials could not
+# be provisioned into an arm's isolated HOME (issue #3245 root cause) ---
+
+def test_run_pair_fails_closed_when_credentials_not_provisioned(
+        monkeypatch, tmp_path, populated_skills_root):
+    # run_pair.py loads its own separate `prepare_arms` module instance
+    # (_load_module at import time) -- patch that instance, not this
+    # test file's own top-level `prepare_arms` reference, or the patch
+    # silently never reaches the code under test.
+    monkeypatch.setattr(
+        run_pair.prepare_arms, "default_credentials_source",
+        lambda: tmp_path / "no-such-credentials.json")
+    monkeypatch.setenv("MUSTER_SKILL_REGISTRY_ROOT", str(populated_skills_root))
+    task_file = run_pair.TASKS_DIR / "01-study-groups.txt"
+    assert task_file.exists(), "fixture assumes an existing pair task file"
+
+    result = run_pair.run_pair(
+        "01-study-groups", "/tmp/fake-repo", "skill-a", "sonnet",
+        101, 102, tmp_path / "out", 1800, confirm_real_spawn=True)
+
+    assert result["status"] == "credentials-provisioning-failed"
+    assert result["excluded_from_h2"] is True
+    assert "on" in result["reason"] or "off" in result["reason"]
+
+
 # --- collect_verification_rounds / collect_cost: fail-closed, not fabricated
 
 def test_collect_verification_rounds_missing_pr_returns_none(tmp_path):

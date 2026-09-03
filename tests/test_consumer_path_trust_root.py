@@ -145,6 +145,67 @@ def test_build_manifest_cleans_up_homes_it_created(populated_skills_root):
     assert all(not d.exists() for d in created_dirs)
 
 
+# --- provision_credentials / build_manifest credential provisioning -----
+# (issue #3245: two independent verifications of PR #3251 traced 0/5
+# pairs scored to arm HOMEs carrying no credentials at all, so every
+# `claude -p` dispatch failed "Not logged in" -- see
+# docs/issue-3245/reports/independent-verification-1.md, -2.md)
+
+def test_provision_credentials_copies_source(tmp_path):
+    source = tmp_path / "source-creds.json"
+    source.write_text('{"token": "fake"}')
+    home = tmp_path / "arm-home"
+    home.mkdir()
+
+    result = prepare_arms.provision_credentials(home, source)
+
+    assert result["provisioned"] is True
+    dest = home / ".claude" / ".credentials.json"
+    assert dest.read_text() == '{"token": "fake"}'
+
+
+def test_provision_credentials_missing_source_returns_reason_not_raise(tmp_path):
+    home = tmp_path / "arm-home"
+    home.mkdir()
+
+    result = prepare_arms.provision_credentials(
+        home, tmp_path / "no-such-credentials.json")
+
+    assert result["provisioned"] is False
+    assert result["reason"]
+    assert not (home / ".claude" / ".credentials.json").exists()
+
+
+def test_build_manifest_records_credentials_per_arm(
+        tmp_path, populated_skills_root):
+    source = tmp_path / "source-creds.json"
+    source.write_text('{"token": "fake"}')
+
+    manifest, created_dirs = prepare_arms.build_manifest(
+        populated_skills_root, "skill-a", "sonnet", "test-operator",
+        credentials_source=source)
+    try:
+        for arm in manifest["arms"]:
+            assert arm["credentials"]["provisioned"] is True
+            dest = Path(arm["home"]) / ".claude" / ".credentials.json"
+            assert dest.read_text() == '{"token": "fake"}'
+    finally:
+        prepare_arms._cleanup(created_dirs)
+
+
+def test_build_manifest_records_missing_credentials_without_raising(
+        tmp_path, populated_skills_root):
+    manifest, created_dirs = prepare_arms.build_manifest(
+        populated_skills_root, "skill-a", "sonnet", "test-operator",
+        credentials_source=tmp_path / "absent.json")
+    try:
+        for arm in manifest["arms"]:
+            assert arm["credentials"]["provisioned"] is False
+            assert arm["credentials"]["reason"]
+    finally:
+        prepare_arms._cleanup(created_dirs)
+
+
 # --- verify_manipulation.py: happy path ---------------------------------
 
 def test_verify_succeeds_on_matching_pair(tmp_path, populated_skills_root):

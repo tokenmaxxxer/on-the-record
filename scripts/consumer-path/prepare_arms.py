@@ -71,6 +71,46 @@ ARM_OFF = "off"
 SKILLS_ROOT_ENV_VAR = "MUSTER_SKILL_REPO"
 
 
+def default_credentials_source() -> Path:
+    """This machine's own Claude Code login. Read-only reuse -- copied
+    into each arm's isolated HOME so a `claude -p` dispatch under that
+    HOME can authenticate; never written back to this path, never a new
+    credential minted."""
+    return Path.home() / ".claude" / ".credentials.json"
+
+
+def provision_credentials(home: Path, source: Path) -> dict:
+    """Copies `source` into `home/.claude/.credentials.json`. Two
+    independent verifications of PR #3251 (docs/issue-3245/reports/
+    independent-verification-1.md, -2.md) traced 0/5 pairs scored to
+    exactly this gap: `prepare_arms.py`'s fresh `tempfile.mkdtemp()` arm
+    HOMEs carried no credentials at all, so every arm's `claude -p` call
+    failed on "Not logged in" before hooks or the skills manipulation
+    ever ran -- `spawn.py doctor()`'s `fired_ups and fired_pre` check
+    cannot distinguish that from genuine hook silence, which is why the
+    prior run misreported it as a CLI/hook regression.
+
+    Returns a record (never raises) so a missing source credential file
+    is visible in the manifest as `provisioned: False` with a reason,
+    instead of surfacing three subprocess calls later as an
+    indistinguishable-looking dispatch failure -- the same failure mode
+    this function exists to close, reintroduced at one remove, if its
+    own failure were silent."""
+    if not source.is_file():
+        return {"provisioned": False, "source": str(source),
+                "reason": f"credentials source {source} does not exist"}
+    dest_dir = home / ".claude"
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    dest = dest_dir / ".credentials.json"
+    try:
+        dest.write_bytes(source.read_bytes())
+        dest.chmod(0o600)
+    except OSError as exc:
+        return {"provisioned": False, "source": str(source),
+                "reason": f"copy to {dest} failed: {exc}"}
+    return {"provisioned": True, "source": str(source), "dest": str(dest)}
+
+
 class ArmPreparationError(Exception):
     """Raised when an arm cannot be prepared in a way that would make the
     manifest an honest record -- e.g. the declared "on" corpus is empty,
@@ -190,14 +230,26 @@ def make_off_arm(home: Path) -> dict:
 
 
 def build_manifest(skills_root_on: Path, skill_name: str, model: str,
-                    operator: str) -> tuple[dict, list[Path]]:
+                    operator: str,
+                    credentials_source: Path | None = None) -> tuple[dict, list[Path]]:
     """Returns (manifest, created_dirs) -- `created_dirs` is exactly the
     temporary HOMEs this call created, for the caller to clean up on
     success. Fails closed (raises `ArmPreparationError`) rather than
     emitting a manifest that does not honestly reflect what was
     prepared -- and on that failure path, cleans up whichever HOMEs it
     had already created before raising, so a rejected preparation never
-    leaks a temp HOME either."""
+    leaks a temp HOME either.
+
+    `credentials_source` defaults to `default_credentials_source()`
+    (this machine's own login) when not given. Provisioning is recorded
+    per arm (`credentials` key) rather than made fatal here: a missing
+    source credentials file is a legitimate state for the unit tests in
+    tests/test_consumer_path_trust_root.py, which exercise this function
+    without a dispatch ever following. `run_pair.py`, which does
+    dispatch, checks `provisioned` per arm before spawning and fails
+    closed there instead."""
+    if credentials_source is None:
+        credentials_source = default_credentials_source()
     on_home = Path(tempfile.mkdtemp(prefix="consumer-path-on-home-"))
     off_home = Path(tempfile.mkdtemp(prefix="consumer-path-off-home-"))
     created_dirs = [on_home, off_home]
@@ -208,6 +260,8 @@ def build_manifest(skills_root_on: Path, skill_name: str, model: str,
             raise ArmPreparationError(
                 "on/off arms received the same HOME -- isolation "
                 "invariant violated")
+        on_arm["credentials"] = provision_credentials(on_home, credentials_source)
+        off_arm["credentials"] = provision_credentials(off_home, credentials_source)
     except ArmPreparationError:
         _cleanup(created_dirs)
         raise
