@@ -16,10 +16,45 @@ this machine to stop it (`spawn.py`'s `Popen()` carries no `preexec_fn` /
 off-arm run by construction, so the same signal could not tell a genuine
 corpus leak apart from the harness's own stub being read as designed.
 
-This module never creates a stub. The off arm's skills root is a path
-that is never created at all -- `demonstrate_absence()` records that the
-path does not exist, not merely an empty list asserted -- so there is
-nothing there for a spawned process to read, stub or otherwise.
+Issue #3280 (round 7): an absent-path off arm no longer runs. Commit
+`da92fb8e` (issue #3277) closed the fallback that used to let a
+nonexistent `MUSTER_SKILL_REPO` silently resolve to the always-populated
+managed clone -- the leak this trust root exists to close. Fixing that
+leak also removed the off arm's ability to dispatch at all: with no
+repo, `--skills <name>` cannot resolve the name, and `spawn.py` refuses
+to dispatch before either arm ever runs. Verified live on #3280: an
+empty-but-present skills root does not help either -- the refusal is
+about the name failing to resolve, not about the directory existing.
+
+So the off arm's skills root is now a same-named DECOY: a fresh
+directory containing `<skill_name>/SKILL.md` with only the real skill's
+`name:` field carried over (so the name resolves and spawn.py
+dispatches) and a placeholder `description:` in place of the real one
+-- no body guidance, and (round 8 correction) no verbatim
+`description:`/`metadata:` either, since those fields are themselves
+most of what a rubric-scored task measures. `make_off_arm()` fails
+closed if the decoy would be byte-identical to the real file (a
+front-matter-only real skill has no body to strip).
+
+Round 8, mid-flight correction: the on arm used to mount the entire
+skill registry (352 files against the off arm's 1), so a scored
+difference could not be attributed to the one skill under test. The on
+arm's skills root is now built the same way as the off arm's -- a
+fresh temp root holding only the real `<skill_name>/` directory,
+copied verbatim, plus the same POLICY skills the decoy root carries.
+The two roots then differ in exactly one file's content (`SKILL.md`)
+and report the same file count.
+
+Round 7, second live finding: a decoy root holding only the one
+manipulated skill still refused to dispatch -- `skills.py`'s
+`resolve_static_policy_source()` unconditionally resolves
+`_STATIC_POLICY_SKILLS` (currently `{'work-in-english'}`) against the
+SAME repo_root every issue-scoped `--skills` spawn uses, regardless of
+what was asked for, and a repo_root missing that name is a fail-closed
+`sys.exit`, not a warning. So the decoy root also gets a verbatim, real
+copy of every POLICY skill directory from the "on" arm's real corpus --
+that baseline is not the manipulated variable and must be identical
+across arms, unlike the one named skill.
 
 Both arms get an isolated, freshly created temporary HOME
 (`tempfile.mkdtemp`, cleaned up by this process before it exits -- never a
@@ -58,13 +93,18 @@ import argparse
 import getpass
 import hashlib
 import json
+import re
+import shutil
 import sys
 import tempfile
-import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent.parent
+sys.path.insert(0, str(ROOT))
+import skills as _skills_mod  # noqa: E402 -- only for _STATIC_POLICY_SKILLS,
+# a plain module-level constant; none of _skills_mod's functions that need
+# the spawn.py-injected `_sp` alias are called from this file.
 
 ARM_ON = "on"
 ARM_OFF = "off"
@@ -117,21 +157,100 @@ def resolve_skill_files(skills_root: Path) -> list[dict]:
     ]
 
 
-def demonstrate_absence(skills_root: Path) -> dict:
-    """Runs the identical scan `resolve_skill_files()` uses against the
-    "off" arm's skills root and records the method plus its literal
-    result -- the check that found nothing and that check's own output,
-    not a bare `[]` written with no evidence behind it."""
-    root_exists = skills_root.exists()
-    found = resolve_skill_files(skills_root) if root_exists else []
-    return {
-        "method": "recursive Path.rglob('*') filtered to regular files "
-                  "(resolve_skill_files())",
-        "skills_root": str(skills_root),
-        "skills_root_exists": root_exists,
-        "files_found": found,
-        "file_count": len(found),
-    }
+_FRONT_MATTER_RE = re.compile(r"\A---\n.*?\n---\n", re.DOTALL)
+_NAME_FIELD_RE = re.compile(r"^name:\s*(.+?)\s*$", re.MULTILINE)
+
+_DECOY_DESCRIPTION = (
+    "Placeholder front matter for a controlled comparison arm. Carries "
+    "no guidance about any task."
+)
+
+
+def front_matter_block(skill_md_text: str) -> str:
+    """The leading YAML front-matter block (`---\\n...\\n---\\n`) of a
+    real SKILL.md, verbatim -- or a minimal name-only fallback if the
+    text does not open with one, since a decoy must still resolve as a
+    skill even when the real file it copies from is malformed."""
+    m = _FRONT_MATTER_RE.match(skill_md_text)
+    return m.group(0) if m else "---\nname: (unknown)\n---\n"
+
+
+def build_decoy_front_matter(real_front_matter: str) -> str:
+    """Issue #3245 mid-flight correction (round 8): the earlier decoy
+    copied the real skill's front matter verbatim (`front_matter_block`,
+    written unchanged). That front matter is where a rubric-scored
+    skill's guidance actually lives -- `description:` states the
+    primary-metric/threshold/decision-rule/guardrail-bounds/sample-size
+    coverage a scorer looks for, and `metadata:` can carry fields like
+    `rule_count_floor` that reveal how many rules exist. Copying it
+    verbatim into the "off" arm handed that arm most of the answer
+    under a different heading. Only `name:` survives -- dispatch needs
+    it to resolve the skill -- and `description:` is replaced with
+    placeholder text carrying no task content; `metadata:` is dropped
+    entirely."""
+    m = _NAME_FIELD_RE.search(real_front_matter)
+    name = m.group(1) if m else "(unknown)"
+    return f"---\nname: {name}\ndescription: {_DECOY_DESCRIPTION}\n---\n"
+
+
+def _copy_real_policy_skills(skills_root_on: Path, decoy_root: Path) -> list[str]:
+    """Copies every POLICY skill (`skills._STATIC_POLICY_SKILLS`) from the
+    "on" arm's real corpus into the decoy root verbatim, unmanipulated.
+    Required for the off arm to dispatch at all: `resolve_static_policy_
+    source()` resolves this fixed name set against the same repo_root
+    every issue-scoped `--skills` spawn uses, fail-closed (`sys.exit`) if
+    any is missing -- live-reproduced this round, the off arm's first
+    real dispatch attempt refused with "unknown skill work-in-english"
+    once the decoy root held only the one manipulated skill. These names
+    are not the manipulated variable (every spawn gets them regardless of
+    `--skills`), so they are copied whole, never decoyed. Silently skips
+    a name absent from `skills_root_on` itself -- nothing this function
+    can fabricate a real copy of, and `resolve_static_policy_source()`
+    will raise its own clear error downstream if that absence matters."""
+    copied = []
+    for name in sorted(_skills_mod._STATIC_POLICY_SKILLS):
+        src = skills_root_on / name
+        if src.is_dir():
+            shutil.copytree(src, decoy_root / name)
+            copied.append(name)
+    return copied
+
+
+def build_decoy_skill_root(skill_name: str, real_skill_md: Path,
+                            skills_root_on: Path | None = None) -> Path:
+    """Issue #3280: a fresh directory containing `<skill_name>/SKILL.md`
+    with `real_skill_md`'s front matter copied verbatim and its body
+    dropped, plus a verbatim copy of every POLICY skill (see
+    `_copy_real_policy_skills()`) when `skills_root_on` is given. Raises
+    `ArmPreparationError` if `real_skill_md` does not exist, or if it
+    carries no body beyond its front matter (a decoy of it would be
+    byte-identical to the real thing, which would prove nothing about the
+    manipulated variable)."""
+    if not real_skill_md.is_file():
+        raise ArmPreparationError(
+            f"cannot build the 'off' arm's decoy -- {real_skill_md} does "
+            "not exist, so there is no real skill to build a same-named "
+            "decoy of")
+    real_text = real_skill_md.read_text(encoding="utf-8")
+    front_matter = front_matter_block(real_text)
+    if front_matter == real_text:
+        raise ArmPreparationError(
+            f"cannot build a decoy that differs from the real skill -- "
+            f"{real_skill_md} carries no body beyond its front matter, "
+            "so a front-matter-only decoy would be byte-identical to it")
+    decoy_text = build_decoy_front_matter(front_matter)
+    if decoy_text == real_text:
+        raise ArmPreparationError(
+            f"cannot build a decoy that differs from the real skill -- "
+            f"the placeholder front matter for {real_skill_md} came out "
+            "byte-identical to the real file")
+    decoy_root = Path(tempfile.mkdtemp(prefix="consumer-path-off-skills-decoy-"))
+    decoy_skill_dir = decoy_root / skill_name
+    decoy_skill_dir.mkdir(parents=True)
+    (decoy_skill_dir / "SKILL.md").write_text(decoy_text, encoding="utf-8")
+    if skills_root_on is not None:
+        _copy_real_policy_skills(skills_root_on, decoy_root)
+    return decoy_root
 
 
 def dispatch_command(skill_name: str, model: str, issue_placeholder: str,
@@ -151,41 +270,78 @@ def dispatch_command(skill_name: str, model: str, issue_placeholder: str,
     ]
 
 
-def make_on_arm(home: Path, skills_root: Path) -> dict:
-    skill_files = resolve_skill_files(skills_root)
+def build_on_skill_root(skills_root_on: Path, skill_name: str) -> Path:
+    """Issue #3245 round-8 correction: mirrors `build_decoy_skill_root()`
+    -- a fresh temp root holding only the real `<skill_name>/` directory,
+    copied verbatim from the registry, plus a verbatim copy of every
+    POLICY skill (see `_copy_real_policy_skills()`). The earlier `on`
+    arm mounted the entire registry (352 files against the off arm's
+    1), so any scored difference could not be attributed to
+    `skill_name` alone -- 351 other skills were also on the table. This
+    way the on/off roots differ in exactly one file's content and
+    nothing else."""
+    src = skills_root_on / skill_name
+    if not src.is_dir():
+        raise ArmPreparationError(
+            f"cannot build the 'on' arm's skill root -- {src} does not "
+            "exist under the real corpus at "
+            f"{skills_root_on}; pass --skills-root-on at a populated "
+            "skill-repository checkout")
+    on_root = Path(tempfile.mkdtemp(prefix="consumer-path-on-skills-"))
+    shutil.copytree(src, on_root / skill_name)
+    _copy_real_policy_skills(skills_root_on, on_root)
+    return on_root
+
+
+def make_on_arm(home: Path, skills_root_on: Path, skill_name: str) -> dict:
+    """Issue #3245 round-8 correction: `skills_root` used to be the
+    caller's full registry root, mounted whole. It is now `skill_name`'s
+    own real directory plus policy skills, built by
+    `build_on_skill_root()` -- see that function's docstring. The
+    caller (`build_manifest()`) is responsible for cleaning up the
+    returned `skills_root`, exactly like the off arm's decoy root."""
+    on_root = build_on_skill_root(skills_root_on, skill_name)
+    skill_files = resolve_skill_files(on_root)
     if not skill_files:
         raise ArmPreparationError(
-            f"'on' arm's skills root {skills_root} resolved to zero "
+            f"'on' arm's skills root {on_root} resolved to zero "
             "files -- refusing to prepare an 'on' arm that is "
             "indistinguishable from 'off'; pass --skills-root-on at a "
             "populated skill-repository checkout")
     return {
         "arm": ARM_ON,
         "home": str(home),
-        "skills_root": str(skills_root),
+        "skills_root": str(on_root),
         "skill_files": skill_files,
-        "absence_check": None,
+        "decoy": None,
     }
 
 
-def make_off_arm(home: Path) -> dict:
-    # Never created -- a path that does not exist is a stronger
-    # demonstration of "not reachable" than an empty directory a stub
-    # could later be written into, and there is nothing here to clean up.
-    off_skills_root = Path(tempfile.gettempdir()) / (
-        f"consumer-path-off-skills-absent-{uuid.uuid4().hex}")
-    absence_check = demonstrate_absence(off_skills_root)
-    if absence_check["file_count"] != 0 or absence_check["skills_root_exists"]:
+def make_off_arm(home: Path, skills_root_on: Path, skill_name: str) -> dict:
+    """Issue #3280: the off arm's skills root is a fresh, real directory
+    (unlike the retired absent-path design) holding a same-named decoy of
+    `skill_name` built from `skills_root_on`'s real copy -- see
+    `build_decoy_skill_root()`. This directory did not exist before this
+    call and is this function's own to have created; the caller
+    (`build_manifest()`) is responsible for adding it to the dirs it
+    cleans up, exactly like the arm's HOME."""
+    decoy_root = build_decoy_skill_root(
+        skill_name, skills_root_on / skill_name / "SKILL.md", skills_root_on)
+    skill_files = resolve_skill_files(decoy_root)
+    if not skill_files:
         raise ArmPreparationError(
-            f"'off' arm's skills root {off_skills_root} already exists "
-            "or is non-empty -- refusing to report an absence that was "
-            "not actually demonstrated")
+            f"'off' arm's decoy root {decoy_root} resolved to zero files "
+            "-- refusing to report a decoy that was not actually written")
     return {
         "arm": ARM_OFF,
         "home": str(home),
-        "skills_root": str(off_skills_root),
-        "skill_files": [],
-        "absence_check": absence_check,
+        "skills_root": str(decoy_root),
+        "skill_files": skill_files,
+        "decoy": {
+            "skill_name": skill_name,
+            "source_skill_md": str(skills_root_on / skill_name / "SKILL.md"),
+            "has_body_guidance": False,
+        },
     }
 
 
@@ -202,12 +358,29 @@ def build_manifest(skills_root_on: Path, skill_name: str, model: str,
     off_home = Path(tempfile.mkdtemp(prefix="consumer-path-off-home-"))
     created_dirs = [on_home, off_home]
     try:
-        on_arm = make_on_arm(on_home, skills_root_on)
-        off_arm = make_off_arm(off_home)
+        on_arm = make_on_arm(on_home, skills_root_on, skill_name)
+        # Round 8 correction: the on arm's skills_root is now a fresh
+        # temp root this call created (only skill_name + policy skills,
+        # not the whole registry) -- it needs the same cleanup as the
+        # off arm's decoy root.
+        created_dirs.append(Path(on_arm["skills_root"]))
+        off_arm = make_off_arm(off_home, skills_root_on, skill_name)
+        # Issue #3280: unlike the retired absent-path design, the off
+        # arm's skills_root is now a real directory this call created
+        # (the decoy) -- it needs the same cleanup as either arm's HOME.
+        created_dirs.append(Path(off_arm["skills_root"]))
         if on_arm["home"] == off_arm["home"]:
             raise ArmPreparationError(
                 "on/off arms received the same HOME -- isolation "
                 "invariant violated")
+        if len(on_arm["skill_files"]) != len(off_arm["skill_files"]):
+            raise ArmPreparationError(
+                "on/off arms report different file counts "
+                f"({len(on_arm['skill_files'])} vs "
+                f"{len(off_arm['skill_files'])}) -- the arms must mount "
+                "the same file set, differing only in the manipulated "
+                "skill's content, or a scored difference cannot be "
+                "attributed to it")
     except ArmPreparationError:
         _cleanup(created_dirs)
         raise
@@ -216,6 +389,7 @@ def build_manifest(skills_root_on: Path, skill_name: str, model: str,
                              "<sandbox-repo>")
     manifest = {
         "issue": 3183,
+        "skill_name": skill_name,
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "operator": operator,
         "skills_root_env_var": SKILLS_ROOT_ENV_VAR,
