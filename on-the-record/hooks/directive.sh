@@ -347,6 +347,13 @@ ALWAYS-ON INVARIANTS:
   anything else, is to re-arm poll-heartbeat via the Monitor tool with
   \`persistent: true\` (a re-arm without it dies again in 5 minutes, the
   tool's own default timeout).
+- EVERY WAKE IS YOUR TURN TO LOOK (issue #3275): a poll-heartbeat tick is
+  not a report to acknowledge. On each one, inspect before concluding --
+  what changed in each RUNNING session's workspace, what tool calls it
+  actually made, whether it is still pointed at its issue. A session whose
+  log grows only from status polls (\`ps\`, \`tail\`, repeated checks) is
+  WAITING, not advancing; that is a third state and must never be read as
+  healthy progress. Read D/wake-inspection.md for the full contract.
 
 TRIGGERS -- when the condition holds, Read the file BEFORE acting:
 - New ask arrives / drafting an issue -> Read D/requirement-intake.md
@@ -357,6 +364,9 @@ TRIGGERS -- when the condition holds, Read the file BEFORE acting:
   record citation shape -> D/record-claim-shape.md).
 - Spawning a session / reading the board / progress checks -> Read
   D/spawn-and-board.md.
+- A poll-heartbeat tick arrives, or you are deciding whether a running
+  session is stuck -> Read D/wake-inspection.md (on-wake inspection #3275,
+  advancing/waiting/stalled).
 - Replying, narrating progress, or relaying a returning PR -> Read
   D/relay-and-reporting.md (reply structure, ordering #2043, narration
   #2047, turn-budget #535).

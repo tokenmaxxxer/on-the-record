@@ -214,6 +214,28 @@ def _pr_state_from_index(pr_index: dict, branch: str) -> int | None:
     return pr.get("number") if pr.get("state") in ("OPEN", "MERGED") else None
 
 
+def _session_progress_state(entry: dict) -> str:
+    """`gates/session_progress.py` wrapper (issue #3275).
+
+    Lazy-imported the same way every other root -> gates crossing in this
+    file is (`gates/spawn_on_pr.py` imports `spawn` at its own top level, so
+    a module-load import here would close a cycle). Any failure to load or
+    classify returns UNKNOWN -- this signal must never be the reason a
+    healthy session gets reported as idle.
+    """
+    try:
+        sys.path.insert(0, str(ROOT / "gates"))
+        import session_progress  # noqa: PLC0415
+    except Exception:
+        return "UNKNOWN"
+    log = entry.get("log")
+    try:
+        return session_progress.classify(Path(log) if log else None,
+                                          workspace_changed=None)
+    except Exception:
+        return "UNKNOWN"
+
+
 def _live_session_workspace_summary(work: str) -> str:
     """이슈 #2904 (재구성, 2026-08-31 이슈 코멘트): `gh`는 세션이 PR을 열어야
     비로소 그 존재를 본다 — 커밋도 PR도 없는 15분짜리 진행 중 세션은 `gh`
@@ -592,6 +614,23 @@ def diagnose_health(key: str, entry: dict, root: Path = ROOT,
     # 주장하지 않는다 — "이상 신호는 없지만 확인도 안 됐다"를 그대로
     # 찍는다.
     if _confirmed_progress_seen(key, entry, state):
+        # Issue #3275: log growth answers "is it breathing", not "is it
+        # getting anywhere". A session waiting on a background dispatch
+        # polls it in a loop and grows its log forever while producing
+        # nothing -- and used to score HEALTHY-CONFIRMED the whole time.
+        # `session_progress.classify()` reads the tool calls behind that
+        # growth: all-observation means WAITING, a third state that is
+        # reported and never counted as healthy progress. It answers
+        # UNKNOWN rather than WAITING whenever it cannot prove idleness,
+        # so a working session is never mislabelled idle.
+        progress = _session_progress_state(entry)
+        if progress == "WAITING":
+            return _diagnosis({"state": "WAITING-ON-DISPATCH",
+                    "next_action": "none",
+                    "detail": f"{key}: 로그는 자라지만 최근 도구 호출이 전부 "
+                              f"관측 전용이다 — 살아있으나 진행 없음(대기), "
+                              f"RUNNING — {workspace_summary}; "
+                              f"{activity_summary}"})
         return _diagnosis({"state": "HEALTHY-CONFIRMED", "next_action": "none",
                 "detail": f"{key}: 로그 성장 확인됨, RUNNING — "
                           f"{workspace_summary}; {activity_summary}"})
