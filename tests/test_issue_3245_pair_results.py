@@ -194,6 +194,117 @@ def test_run_pair_fails_closed_when_operator_credential_missing(
     assert not (tmp_path / "out" / "manifest.json").exists()
 
 
+def test_run_pair_success_path_builds_plan_shim_without_nameerror(
+        monkeypatch, tmp_path, populated_skills_root):
+    """Regression (issue #3245 round 4): `class _P: skill_name =
+    skill_name` inside run_pair() was a self-referential class-body
+    assignment -- Python resolves a name assigned within a class body via
+    the (still-empty) class namespace, never falling back to the
+    enclosing function's local `skill_name`, so the RHS always raised
+    NameError. No pair before this round had ever reached this line
+    (every prior real dispatch failed earlier, at watch or credential
+    seeding), so the bug went undetected through three rounds. Exercises
+    the full success path (both arms mocked as watched-to-completion)
+    end to end."""
+    monkeypatch.setenv("MUSTER_SKILL_REGISTRY_ROOT", str(populated_skills_root))
+
+    def _fake_execute_arm(argv, env_override, repo, issue, arm_name,
+                           watch_session, watch_timeout_s, confirm_real_spawn):
+        return {"arm": arm_name, "issue": issue,
+                "status": "watched-to-completion",
+                "wall_clock_to_pr_open_s": 1.0, "dispatch_returncode": 0,
+                "watch_returncode": 0}
+
+    monkeypatch.setattr(run_pair, "execute_arm", _fake_execute_arm)
+    monkeypatch.setattr(
+        run_pair.rcp, "gate_pair_on_h1",
+        lambda pair_id, workspace_on, workspace_off, **kw: {
+            "pair_id": pair_id, "h1": {"differs": True},
+            "h1_manipulation_ok": True, "excluded_from_h2": False,
+            "exclusion_reason": None, "h2": {"stub": True}})
+    monkeypatch.setattr(run_pair, "collect_verification_rounds",
+                         lambda *a, **kw: {"measured": False})
+    monkeypatch.setattr(run_pair, "collect_cost",
+                         lambda *a, **kw: {"measured": False})
+
+    result = run_pair.run_pair(
+        "01-study-groups", "/tmp/fake-repo", "my-skill", "sonnet",
+        19, 20, tmp_path / "out", 1800, True)
+    assert result["h1_manipulation_ok"] is True
+    assert result["h2"] == {"stub": True}
+
+
+# --- _github_slug_from_local_repo: regression (issue #3245 round 4) ----
+#
+# `run_pair()` passed its own `--repo` value (a local clone filesystem
+# path, per this module's own CLI help text) straight through to
+# `gate_pair_on_h1()` -> `_discover_arm_branch()`'s `gh pr list -R
+# <repo>`, which requires an `owner/repo` slug, not a path. Live-
+# reproduced on pair 1's first fresh round-4 dispatch: both arms reached
+# `watched-to-completion` but H1 came back `unknown` because `gh pr list
+# -R '/home/jwjung/study-companion'` failed outright ("expected the
+# [HOST/]OWNER/REPO format") -- a real, successful arm reported as
+# unobservable for a reason that had nothing to do with observability.
+
+def test_github_slug_resolves_from_https_origin(monkeypatch):
+    def _fake_run(cmd, capture_output, text, timeout):
+        assert cmd == ["git", "-C", "/some/local/clone", "remote",
+                        "get-url", "origin"]
+        return subprocess.CompletedProcess(
+            cmd, 0, stdout="https://github.com/JiwonJung94/study-companion.git\n",
+            stderr="")
+
+    monkeypatch.setattr(subprocess, "run", _fake_run)
+    assert run_pair._github_slug_from_local_repo("/some/local/clone") == \
+        "JiwonJung94/study-companion"
+
+
+def test_github_slug_resolves_from_ssh_origin(monkeypatch):
+    def _fake_run(cmd, capture_output, text, timeout):
+        return subprocess.CompletedProcess(
+            cmd, 0, stdout="git@github.com:acme/sandbox.git\n", stderr="")
+
+    monkeypatch.setattr(subprocess, "run", _fake_run)
+    assert run_pair._github_slug_from_local_repo("/some/clone") == "acme/sandbox"
+
+
+def test_github_slug_returns_none_not_fabricated_when_remote_lookup_fails(
+        monkeypatch):
+    def _fake_run(cmd, capture_output, text, timeout):
+        return subprocess.CompletedProcess(cmd, 128, stdout="", stderr="not a git repo")
+
+    monkeypatch.setattr(subprocess, "run", _fake_run)
+    assert run_pair._github_slug_from_local_repo("/not/a/repo") is None
+
+
+# --- _rebase_workspace_to_arm_home: regression (issue #3245 round 4) ---
+#
+# `rcp.arm_workspace_dir()`'s guess is computed from THIS orchestrating
+# process's own HOME, never the dispatched arm's isolated HOME -- so its
+# guessed workspace can never point at the arm's real one for a trust-
+# rooted (isolated-HOME) dispatch. Live-reproduced on pair 1's first
+# fresh round-4 dispatch, after the `-R`-vs-local-path slug fix above
+# was already in place: H1 still came back `unknown`, this time because
+# `collect_skill_invocation()`'s own discovery-fallback reconstruction
+# rebuilds the real workspace under `workspace.parent` -- which was still
+# this orchestrator's own `$MUSTER_WORKSPACE_ROOT`, not the arm's
+# isolated HOME's `.tokenmaxxxer/work`, where the session log actually
+# was.
+
+def test_rebase_workspace_to_arm_home_swaps_home_prefix():
+    guessed = Path("/home/orchestrator/.tokenmaxxxer/work/"
+                    "study-companion-issue-19-my-skill")
+    result = run_pair._rebase_workspace_to_arm_home(
+        guessed, "/tmp/consumer-path-on-home-zflb8501")
+    assert result == Path("/tmp/consumer-path-on-home-zflb8501/"
+                           ".tokenmaxxxer/work/"
+                           "study-companion-issue-19-my-skill")
+
+
+def test_rebase_workspace_to_arm_home_passes_through_none():
+    assert run_pair._rebase_workspace_to_arm_home(None, "/tmp/home") is None
+
+
 # --- collect_verification_rounds / collect_cost: fail-closed, not fabricated
 
 def test_collect_verification_rounds_missing_pr_returns_none(tmp_path):

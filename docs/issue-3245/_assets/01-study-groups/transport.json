@@ -17,7 +17,7 @@
         "/home/jwjung/study-companion"
       ],
       "env": {
-        "HOME": "/tmp/consumer-path-on-home-9phd2jn1",
+        "HOME": "/tmp/consumer-path-on-home-zflb8501",
         "MUSTER_SKILL_REPO": "/home/jwjung/skill-registry/skills"
       }
     },
@@ -36,8 +36,8 @@
         "/home/jwjung/study-companion"
       ],
       "env": {
-        "HOME": "/tmp/consumer-path-off-home-eikahmx5",
-        "MUSTER_SKILL_REPO": "/tmp/consumer-path-off-skills-absent-5ced3125fbd54e68a69b4d410e57bfcc"
+        "HOME": "/tmp/consumer-path-off-home-fciaymq1",
+        "MUSTER_SKILL_REPO": "/tmp/consumer-path-off-skills-absent-834a4827a73b48b0af99f5600a0873d4"
       }
     }
   },
