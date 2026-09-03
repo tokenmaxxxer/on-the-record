@@ -80,6 +80,50 @@ sys.path.insert(0, str(ROOT / "scripts" / "issue-3127"))
 import run_consumer_pair as rcp  # noqa: E402
 
 
+def _github_slug_from_local_repo(local_repo: str) -> str | None:
+    """Resolve a local clone's GitHub `owner/repo` slug from its `origin`
+    remote (issue #3245 round 4). `_discover_arm_branch()`/`gh pr list
+    -R` require that format, not a filesystem path -- but `run_pair()`'s
+    own `--repo` CLI argument is documented as "a local clone of the
+    target sandbox repo" and IS a filesystem path (used correctly
+    elsewhere in this module as `cwd=repo` for `collect_verification_
+    rounds()`/`collect_cost()`/`execute_arm()`). Passing that same local
+    path straight through as `-R` failed live on pair 1's first fresh
+    round-4 dispatch: "gh pr list -R '/home/jwjung/study-companion'
+    failed: expected the [HOST/]OWNER/REPO format" -- H1 was reported
+    `unknown` for an arm that had, in fact, just watched to completion.
+    Returns None (not a fabricated slug) if the remote cannot be
+    resolved, so the caller can fall back to the raw value rather than
+    silently passing a garbage string to `-R`."""
+    r = subprocess.run(["git", "-C", local_repo, "remote", "get-url", "origin"],
+                        capture_output=True, text=True, timeout=30)
+    if r.returncode != 0:
+        return None
+    m = re.search(r"github\.com[:/]([^/]+/[^/.]+?)(?:\.git)?/?$", r.stdout.strip())
+    return m.group(1) if m else None
+
+
+def _rebase_workspace_to_arm_home(workspace: Path | None,
+                                   arm_home: str) -> Path | None:
+    """`rcp.arm_workspace_dir()` computes its guess from `Path.home()`
+    (this ORCHESTRATING process's own HOME/`MUSTER_WORK_DIR`) via
+    `spawn.py`'s `_workspace_target_path()` -> `_workspace_base()` --
+    never the dispatched arm's own isolated HOME (issue #3245 round 4).
+    Every consumer-path arm's real workspace lives under
+    `<arm HOME>/.tokenmaxxxer/work/...` (confirmed live: pair 1's first
+    fresh round-4 dispatch left its session log exactly there), a
+    different filesystem location than this orchestrator's own
+    `$MUSTER_WORKSPACE_ROOT` entirely. `_clean_base_env()` strips
+    `MUSTER_WORK_DIR` from every arm's env (matches the `MUSTER_*` leak-
+    prone pattern), so the arm always falls back to its own HOME's
+    default `.tokenmaxxxer/work` -- swapping the HOME prefix on the
+    already-computed leaf name is correct and cheaper than re-deriving
+    the whole path a second time under a temporarily-overridden HOME."""
+    if workspace is None:
+        return None
+    return Path(arm_home) / ".tokenmaxxxer" / "work" / workspace.name
+
+
 def _skills_argument(skill_name: str, arm: str) -> str:
     """Bare name for "on" (byte-identical to production usage); the
     `skill-repo:` source qualifier for "off" so resolution reads ONLY
@@ -438,11 +482,16 @@ def run_pair(pair_id: str, repo: str, skill_name: str, model: str,
         }
 
     class _P:  # minimal shim for rcp.arm_workspace_dir()'s Plan-shaped arg
-        sandbox_repo = repo
-        skill_name = skill_name
+        pass
     plan_shim = _P()
-    workspace_on = rcp.arm_workspace_dir(plan_shim, on_issue)
-    workspace_off = rcp.arm_workspace_dir(plan_shim, off_issue)
+    plan_shim.sandbox_repo = repo
+    plan_shim.skill_name = skill_name
+    on_home = [a for a in manifest["arms"] if a["arm"] == "on"][0]["home"]
+    off_home = [a for a in manifest["arms"] if a["arm"] == "off"][0]["home"]
+    workspace_on = _rebase_workspace_to_arm_home(
+        rcp.arm_workspace_dir(plan_shim, on_issue), on_home)
+    workspace_off = _rebase_workspace_to_arm_home(
+        rcp.arm_workspace_dir(plan_shim, off_issue), off_home)
 
     def _fetch(_plan, issue):
         return rcp._default_deliverable_fetcher(plan_shim, issue)
@@ -463,9 +512,10 @@ def run_pair(pair_id: str, repo: str, skill_name: str, model: str,
                                         deliverable_off, [skill_name],
                                         evaluator_fn=evaluator_fn)
 
+    github_slug = _github_slug_from_local_repo(repo) or repo
     gated = rcp.gate_pair_on_h1(pair_id, workspace_on, workspace_off,
                                  skill_name=skill_name, compute_h2=compute_h2,
-                                 repo=repo, issue_on=on_issue,
+                                 repo=github_slug, issue_on=on_issue,
                                  issue_off=off_issue)
     prepare_arms._cleanup(created_dirs)
     if gated.get("h2") and gated["h2"].get("h2_unavailable"):

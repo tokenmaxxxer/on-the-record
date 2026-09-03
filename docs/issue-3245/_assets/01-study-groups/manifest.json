@@ -3,7 +3,7 @@
     {
       "absence_check": null,
       "arm": "on",
-      "home": "/tmp/consumer-path-on-home-9phd2jn1",
+      "home": "/tmp/consumer-path-on-home-zflb8501",
       "skill_files": [
         {
           "path": "accessibility-aria-and-contrast-rules/SKILL.md",
@@ -1773,13 +1773,13 @@
         "file_count": 0,
         "files_found": [],
         "method": "recursive Path.rglob('*') filtered to regular files (resolve_skill_files())",
-        "skills_root": "/tmp/consumer-path-off-skills-absent-5ced3125fbd54e68a69b4d410e57bfcc",
+        "skills_root": "/tmp/consumer-path-off-skills-absent-834a4827a73b48b0af99f5600a0873d4",
         "skills_root_exists": false
       },
       "arm": "off",
-      "home": "/tmp/consumer-path-off-home-eikahmx5",
+      "home": "/tmp/consumer-path-off-home-fciaymq1",
       "skill_files": [],
-      "skills_root": "/tmp/consumer-path-off-skills-absent-5ced3125fbd54e68a69b4d410e57bfcc"
+      "skills_root": "/tmp/consumer-path-off-skills-absent-834a4827a73b48b0af99f5600a0873d4"
     }
   ],
   "dispatch": {
@@ -1803,7 +1803,7 @@
     ],
     "note": "spawn.py with an orchestrator -- not a bare `claude -p` (the #3041/#3053 shortcut this issue's floor condition invalidated for this requirement)"
   },
-  "generated_at": "2026-09-03T01:55:36.131786+00:00",
+  "generated_at": "2026-09-03T04:54:30.416430+00:00",
   "issue": 3183,
   "operator": "jwjung",
   "skills_root_env_var": "MUSTER_SKILL_REPO"

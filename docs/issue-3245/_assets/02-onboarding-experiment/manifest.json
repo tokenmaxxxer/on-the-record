@@ -3,7 +3,7 @@
     {
       "absence_check": null,
       "arm": "on",
-      "home": "/tmp/consumer-path-on-home-gpnq4nu3",
+      "home": "/tmp/consumer-path-on-home-vt3awom8",
       "skill_files": [
         {
           "path": "accessibility-aria-and-contrast-rules/SKILL.md",
@@ -1773,25 +1773,15 @@
         "file_count": 0,
         "files_found": [],
         "method": "recursive Path.rglob('*') filtered to regular files (resolve_skill_files())",
-        "skills_root": "/tmp/consumer-path-off-skills-absent-4e9abf69ab65417f9486a40ef292836e",
+        "skills_root": "/tmp/consumer-path-off-skills-absent-1d06c7d161ef40a6871484728419f805",
         "skills_root_exists": false
       },
       "arm": "off",
-      "home": "/tmp/consumer-path-off-home-b0gy74wc",
+      "home": "/tmp/consumer-path-off-home-pnez329o",
       "skill_files": [],
-      "skills_root": "/tmp/consumer-path-off-skills-absent-4e9abf69ab65417f9486a40ef292836e"
+      "skills_root": "/tmp/consumer-path-off-skills-absent-1d06c7d161ef40a6871484728419f805"
     }
   ],
-  "credential_provisioning": {
-    "off": {
-      "provisioned": true,
-      "source": "/home/jwjung/.claude/.credentials.json"
-    },
-    "on": {
-      "provisioned": true,
-      "source": "/home/jwjung/.claude/.credentials.json"
-    }
-  },
   "dispatch": {
     "argv_identical_across_arms": true,
     "argv_template": [
@@ -1813,7 +1803,7 @@
     ],
     "note": "spawn.py with an orchestrator -- not a bare `claude -p` (the #3041/#3053 shortcut this issue's floor condition invalidated for this requirement)"
   },
-  "generated_at": "2026-09-03T04:23:36.274220+00:00",
+  "generated_at": "2026-09-03T05:19:47.093894+00:00",
   "issue": 3183,
   "operator": "jwjung",
   "skills_root_env_var": "MUSTER_SKILL_REPO"
