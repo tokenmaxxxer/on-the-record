@@ -1,6 +1,7 @@
 {
   "pair_id": "01-study-groups",
-  "recollection_note": "This result is NOT produced by a fresh scripts/consumer-path/run_pair.py --execute run -- round 3 recollected it from round 2's real dispatch (workspace issue-3245/experiment-trust+implementation-blueprint+silent-failure-audit-f264980e, never landed in a PR). manifest.json/transport.json here are copied byte-identical from that workspace's own pre-dispatch artifacts (manifest.json.sha256 verified to match); arm_results below are copied from that workspace's own post-watch result.json, itself dispatch_returncode=0/watch_returncode=0 for both arms -- real, successful dispatches, not fabricated. h2 was computed this round by feeding PRs #29/#30's bodies (fetched live via `gh pr view`) into the existing blind scorer scripts/issue-3041/evaluate_pair.py directly, bypassing run_pair.py's own compute_h2() closure, because that closure needs a live workspace this round cannot reconstruct (see h1 note below).",
+  "round": 4,
+  "dispatch_provenance": "fresh --execute dispatch this round (not recollected) -- study-companion PR #32 (on, issue 19, branch issue-19/product-discovery-hypothesis-preregistration-f8d6c6a2) and PR #33 (off, issue 20, branch issue-20/product-discovery-hypothesis-preregistration-106af0d0). Both arms reached watched-to-completion for the first time ever in this measurement's four rounds -- every earlier real dispatch attempt failed before this point (watch race, missing credentials, cleanup-before-H1-gate ordering). run_pair()'s own post-dispatch synthesis then crashed on three real, previously-unexercised bugs (see docs/issue-3245/reports/experiment-trust+silent-failure-audit-726d85ba.md 'What was done' -- class-body NameError, gh -R given a local path instead of owner/repo, guessed workspace rooted in this orchestrator's HOME instead of the arm's isolated HOME), all fixed this round in scripts/consumer-path/run_pair.py. This file was assembled by replaying only the post-dispatch synthesis against the arm homes still on disk (uncleaned, since the crash happened before cleanup) -- the dispatch itself was not re-run.",
   "manifest": "docs/issue-3245/_assets/01-study-groups/manifest.json",
   "transport": "docs/issue-3245/_assets/01-study-groups/transport.json",
   "manipulation_check": {
@@ -9,46 +10,72 @@
     "manifest": "docs/issue-3245/_assets/01-study-groups/manifest.json",
     "transport": "docs/issue-3245/_assets/01-study-groups/transport.json",
     "arms_checked": ["on", "off"],
-    "note": "pre-dispatch argv/env cross-check only (verify_manipulation.py) -- distinct from H1 below, which needs a post-dispatch session log."
+    "note": "pre-dispatch argv/env cross-check only (verify_manipulation.py) -- distinct from H1 below, which needs a post-dispatch session log and is what actually caught this pair's real defect."
   },
   "arm_results": {
     "on": {
       "arm": "on", "issue": 19, "status": "watched-to-completion",
-      "wall_clock_to_pr_open_s": 367.48699934594333,
-      "wall_clock_to_landed_s": null,
-      "dispatch_returncode": 0, "watch_returncode": 0, "watch_stderr": null,
-      "real_pr": "https://github.com/JiwonJung94/study-companion/pull/29",
-      "real_branch": "issue-19/product-discovery-hypothesis-preregistration-37412f31"
+      "wall_clock_to_pr_open_s": 317,
+      "wall_clock_to_pr_open_note": "reconstructed from this arm's own events.jsonl (session-start ts 1788411283 -> pr-opened ts 1788411600), since the crashed run never persisted its own in-memory timing.",
+      "dispatch_returncode": 0, "watch_returncode": 0,
+      "real_pr": "https://github.com/JiwonJung94/study-companion/pull/32",
+      "real_branch": "issue-19/product-discovery-hypothesis-preregistration-f8d6c6a2"
     },
     "off": {
       "arm": "off", "issue": 20, "status": "watched-to-completion",
-      "wall_clock_to_pr_open_s": 448.3366864286363,
-      "wall_clock_to_landed_s": null,
-      "dispatch_returncode": 0, "watch_returncode": 0, "watch_stderr": null,
-      "real_pr": "https://github.com/JiwonJung94/study-companion/pull/30",
-      "real_branch": "issue-20/product-discovery-hypothesis-preregistration-abf6a734"
+      "wall_clock_to_pr_open_s": 328,
+      "wall_clock_to_pr_open_note": "reconstructed from this arm's own events.jsonl (session-start ts 1788411629 -> pr-opened ts 1788411957), since the crashed run never persisted its own in-memory timing.",
+      "dispatch_returncode": 0, "watch_returncode": 0,
+      "real_pr": "https://github.com/JiwonJung94/study-companion/pull/33",
+      "real_branch": "issue-20/product-discovery-hypothesis-preregistration-106af0d0"
     }
   },
-  "h1": {
-    "status": "unrecoverable",
-    "reason": "Round 2's H1 check (collect_skill_invocation()) reported both arms as 'never reached a dispatched, log-producing state' -- false: both arms dispatched and watched to completion (arm_results above), producing real PRs #29/#30 at exactly the branch hashes the harness itself expected. That false verdict was the watch-race/wrong-workspace-guess bug round 3 fixes (see scripts/issue-3127/run_consumer_pair.py's collect_skill_invocation()/_discover_arm_branch()). The FIX corrects the label from 'never-dispatched' to 'unknown' going forward, but cannot retroactively recover round 2's own session-log artifacts, which have since been cleaned up on this machine (checked: no study-companion-issue-19-...-37412f31.session.*.log or ...-abf6a734.session.*.log under $MUSTER_WORKSPACE_ROOT as of this round). So pair 1's H1 (did the on arm actually invoke the Skill tool, did the off arm not) is unrecoverable, not failed and not passed -- there is no session log left to check either way.",
-    "h1_manipulation_ok": false
+  "credential_seeding": {
+    "on": {"seeded": true, "source": "/home/jwjung/.claude/.credentials.json"},
+    "off": {"seeded": true, "source": "/home/jwjung/.claude/.credentials.json"}
   },
-  "h2": {
-    "note": "Computed directly from PRs #29 (on) / #30 (off) bodies via scripts/issue-3041/evaluate_pair.py, run live this round.",
-    "evaluator_verdict": {
-      "document_1_score": 7,
-      "document_2_score": 7,
-      "verdict": "indistinguishable",
-      "reasoning": "Both are just summaries/test-plans of the same underlying brief structure (same-job analysis, gating hypothesis, kill/guardrail conditions, pilot design), so they contain the same rubric elements at the same level of abstraction -- neither shows the actual specific falsifiable condition or signal timeline text itself, just references to where it lives. Without visibility into the linked brief.md content, the two summaries are functionally equivalent in what they claim to satisfy."
+  "h1": {
+    "on_invocation": {
+      "session_log": "/tmp/consumer-path-on-home-zflb8501/.tokenmaxxxer/work/study-companion-issue-19-product-discovery-hypothesis-preregistration-f8d6c6a2.session.20260903T135443.2063513.log",
+      "mounted": ["product-discovery-hypothesis-preregistration", "work-in-english"],
+      "invoked": true, "measured": true,
+      "mounted_but_not_invoked": false, "invoked_but_not_mounted": false
     },
-    "document_1_actual_arm": "skills-off",
-    "document_2_actual_arm": "skills-on",
-    "raw_output": "docs/issue-3245/_assets/01-study-groups/h2_evaluation.json",
-    "caveat": "Scored from PR body text (the same deliverable_fetcher shape run_pair.py's own compute_h2() uses -- gh pr view --json body), which is a short summary/test-plan, not the full linked brief.md the PR references. The evaluator's own reasoning flags this: it could not see the brief's actual falsifiable-condition/signal-timeline text, only pointers to where it lives."
+    "off_invocation": {
+      "session_log": "/tmp/consumer-path-off-home-fciaymq1/.tokenmaxxxer/work/study-companion-issue-20-product-discovery-hypothesis-preregistration-106af0d0.session.20260903T140029.2090156.log",
+      "mounted": [],
+      "invoked": true, "measured": true,
+      "mounted_but_not_invoked": false, "invoked_but_not_mounted": true
+    },
+    "differs": false,
+    "reason": "the skills-off arm's session log recorded a REAL, SUCCESSFUL Skill tool_use call naming 'product-discovery-hypothesis-preregistration' (tool_result: success=true, \"Launching skill: product-discovery-hypothesis-preregistration\", followed by a real injected skill body reading 'Base directory for this skill: .../runs/rulebooks/skill-repository/skills/product-discovery-hypothesis-preregistration') despite `mounted: []` (no plugin ever mounted for this arm) and MUSTER_SKILL_REPO pointing at a path this launcher deliberately never created. The off arm's isolation did not hold at runtime."
+  },
+  "root_cause_finding": {
+    "summary": "The off arm's `skill-repo:` source-qualifier isolation (PR #3185's central guarantee: 'no skills root at all for the off arm, no stub to misclassify') does not actually block skill content delivery. `skills.py::_skill_repo_root()`'s resolution order is: MUSTER_SKILL_REPO env (if set AND is_dir()) -> sibling clone -> `_skill_repo_managed_root()` (a shared, repo-owned, always-populated clone at `<this orchestrator's checkout>/runs/rulebooks/skill-repository/skills/`). When MUSTER_SKILL_REPO is explicitly set but points at a path that does not exist (prepare_arms.py's whole off-arm strategy), the `is_dir()` check fails and the function silently FALLS THROUGH to the next tier instead of returning None -- treating 'explicitly set to an intentionally-absent path' identically to 'never set at all'. The off arm's dispatch therefore resolved the pinned skill from the shared managed clone, completely bypassing the isolated-HOME/env-var trust root.",
+    "evidence": [
+      "manifest.json: off arm's skills_root = /tmp/consumer-path-off-skills-absent-834a4827a73b48b0af99f5600a0873d4, confirmed not present on disk (os.path.exists == False).",
+      "transport.json: off arm's env MUSTER_SKILL_REPO is exactly that absent path.",
+      "off arm's session log, line 61 (tool_result): {\"success\": true, \"commandName\": \"product-discovery-hypothesis-preregistration\"}, content 'Launching skill: product-discovery-hypothesis-preregistration'.",
+      "off arm's session log, line 62 (injected skill body): 'Base directory for this skill: /home/jwjung/.tokenmaxxxer/work/on-the-record-issue-3245-experiment-trust+silent-failure-audit-726d85ba/runs/rulebooks/skill-repository/skills/product-discovery-hypothesis-preregistration' -- this orchestrator's OWN repo checkout, not the arm's isolated HOME or MUSTER_SKILL_REPO at all.",
+      "/home/jwjung/.claude/plugins/marketplaces/tokenmaxxxer/skills.py:197-211 (_skill_repo_root()): env tier returns the resolved path only `if p.is_dir()`; on failure, control falls through to the sibling-clone and managed-clone tiers rather than returning None -- confirmed by reading the function body directly this session.",
+      "off arm's SECOND Skill call this same session, for an unrelated/unmounted skill name ('hypothesis-testing'), correctly failed with 'Unknown skill: hypothesis-testing' -- proving the managed-clone fallback only serves skills that are actually present in that shared clone, not an unconditional pass-through; the pinned target skill happens to be present there because every session on this machine bootstraps that same managed clone at SessionStart."
+    ],
+    "severity": "This affects every consumer-path off-arm dispatch that has ever run or will run under the current `_skill_repo_root()` fallback chain, not just this pair -- it explains why H1 has never passed in four rounds of this issue once it became possible to observe it (rounds 1-3 never got a session log for both arms at all; this is the first round that did). Any prior H2 'off arm' result anywhere in this project's history that relied on `skill-repo:<absent-path>` isolation should be treated as unverified for this specific guarantee.",
+    "resolution_path": "Not fixed this round -- this is a defect in shared, core infrastructure (skills.py, used by every `--skills skill-repo:` dispatch across the whole repo, not scoped to docs/issue-3245's consumer-path scripts) and warrants its own dedicated issue with its own review, not a same-PR patch bundled into a measurement round. The fix shape: `_skill_repo_root()` should distinguish 'MUSTER_SKILL_REPO unset' from 'MUSTER_SKILL_REPO set but invalid' and fail closed (return None, or raise) on the latter, never silently falling through to a shared managed clone that defeats the whole point of an explicit absent-path override."
   },
   "h1_manipulation_ok": false,
   "excluded_from_h2": true,
-  "exclusion_reason": "H1 is unrecoverable for this pair (session-log artifacts from round 2's real dispatch no longer exist on this machine -- see h1.reason), not failed and not passed. Per this issue's own must-not ('do not score a pair whose manipulation check failed'), this pair is excluded from the formal n>=5 tally on the conservative reading that an unrecoverable check does not count as a passing one. The h2 tie score above is reported anyway, plainly labeled as supplementary and not gated by a passing H1, because the issue's other must-not ('do not report an aggregate that hides a per-pair result') cuts the other way -- suppressing a real, recollected result would itself be a silent failure.",
-  "verified_hash_match": "manifest.json.sha256 recomputed locally this round and matches the committed sidecar -- the manifest itself was not tampered with."
+  "exclusion_reason": "H1 manipulation check failed: see root_cause_finding above. Per this issue's own must-not ('do not score a pair whose manipulation check failed; exclude it and say why'), this pair is excluded from the formal tally.",
+  "h2": null,
+  "h2_note": "Not computed. Per the issue's own must-not, an H1-failed pair is never scored on H2 regardless of whether real deliverable text is available (it is: study-companion PR #32/#33 both add real brief content).",
+  "verification": {
+    "on": {"verification_rounds": null, "defects_found": null, "measured": false,
+           "reason": "gh pr view 'issue-19/product-discovery-hypothesis-preregistration' failed: no pull requests found for branch \"issue-19/product-discovery-hypothesis-preregistration\" -- collect_verification_rounds() guesses the bare (non-disambiguated) branch name, the same class of bug fixed elsewhere in this round's synthesis path but not yet fixed here; not blocking since this pair is unscored regardless."},
+    "off": {"verification_rounds": null, "defects_found": null, "measured": false,
+            "reason": "gh pr view 'issue-20/product-discovery-hypothesis-preregistration' failed: no pull requests found for branch \"issue-20/product-discovery-hypothesis-preregistration\" -- same guessed-branch-name limitation as the on arm above."}
+  },
+  "cost": {
+    "on": {"cost_usd": null, "measured": false, "reason": "no runs/ledger.jsonl entries for issue=19 skill='product-discovery-hypothesis-preregistration'"},
+    "off": {"cost_usd": null, "measured": false, "reason": "no runs/ledger.jsonl entries for issue=20 skill='product-discovery-hypothesis-preregistration'"}
+  }
 }
