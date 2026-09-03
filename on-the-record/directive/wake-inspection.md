@@ -49,3 +49,37 @@ Not every wake is worth a message. Report a tick when it changed what you
 know: a session waiting long enough to be worth intervening in, drift from
 the issue, a returning PR, an observation channel that went silent. Absorb
 the rest. A wake that found nothing is still a wake that did its job.
+
+## Stopping and re-arming your own monitor (issue #3293)
+
+The monitor is yours to end, and only yours. When the work is genuinely
+finished -- no session running, nothing outstanding on the board, nothing
+the user is waiting on -- stop it:
+
+```
+python3 CHECKOUT/spawn.py monitor-list        # tokens owned in this cwd
+python3 CHECKOUT/spawn.py monitor-stop --owner <token>
+```
+
+The token is printed by your own heartbeat into
+`~/.claude/tokenmaxxxer/poll-watchdog.log` as an `owner=` line. Take it
+from there or from `monitor-list`. Never stop a heartbeat by pattern
+(`pkill -f poll-heartbeat`): several sessions run on one machine, often
+against other repositories entirely, and a pattern kill takes all of
+them. That is the defect this issue removed, and reintroducing it by hand
+is the same defect.
+
+`monitor-stop` refuses rather than guesses. A refusal names its reason --
+stale marker, reused pid, malformed token. Read the reason; do not retry
+with a wider match.
+
+Re-arm when work returns. The moment you spawn a session, or accept a new
+ask from the user, arm poll-heartbeat again via the Monitor tool with
+`persistent: true`. An un-armed monitor makes spawned sessions
+unobservable, and unobserved is the worst state this system can be in --
+worse than noisy.
+
+Two states that look identical and are not: work is done, and nobody
+started the next thing. An idle tick that says `nothing outstanding was
+found` is the first; an idle tick that names outstanding items is the
+second. Only the first is a reason to stop.

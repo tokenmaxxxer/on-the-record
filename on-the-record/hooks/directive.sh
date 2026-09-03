@@ -370,7 +370,9 @@ TRIGGERS -- when the condition holds, Read the file BEFORE acting:
 - Spawning a session / reading the board / progress checks -> Read
   D/spawn-and-board.md.
 - A poll-heartbeat tick arrives, or you are deciding whether a running
-  session is stuck -> Read D/wake-inspection.md (on-wake inspection #3275,
+  session is stuck, or all work looks finished and you are deciding
+  whether to stop your own monitor -> Read D/wake-inspection.md
+  (on-wake inspection #3275, monitor stop/re-arm #3293,
   advancing/waiting/stalled).
 - Replying, narrating progress, or relaying a returning PR -> Read
   D/relay-and-reporting.md (reply structure, ordering #2043, narration

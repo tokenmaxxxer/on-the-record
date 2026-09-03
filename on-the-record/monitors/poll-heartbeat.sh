@@ -129,7 +129,17 @@ try:
         raw = f.read()
     start = raw[raw.rfind(")") + 2:].split()[19]
 except (OSError, IndexError, ValueError):
-    start = "nostat"
+    # No /proc (macOS). `ps -o lstart=` answers on both platforms, and
+    # without it the token degraded to "nostat", which monitor_ownership
+    # then accepted on the pid alone -- reopening the pid-reuse hole the
+    # token exists to close.
+    import subprocess
+    try:
+        out = subprocess.run(["ps", "-p", pid, "-o", "lstart="],
+                             capture_output=True, text=True, timeout=5)
+        start = out.stdout.strip().replace(" ", "_") or "nostat"
+    except Exception:
+        start = "nostat"
 print("%s.%s" % (pid, start))
 ' "$$" 2>/dev/null)"
   [ -n "${OTR_MONITOR_OWNER}" ] || OTR_MONITOR_OWNER="$$.unknown"

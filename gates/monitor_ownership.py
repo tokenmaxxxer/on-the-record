@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import subprocess
 import signal
 from pathlib import Path
 
@@ -47,16 +48,37 @@ def alive_dir_for(cwd: str | os.PathLike[str]) -> Path:
 
 
 def _proc_start_tick(pid: int) -> str | None:
-    """Field 22 of `/proc/<pid>/stat`. `None` where there is no /proc."""
+    """A pid's start time, as a string that is stable for that process.
+
+    Field 22 of `/proc/<pid>/stat` where /proc exists; otherwise `ps -p
+    <pid> -o lstart=`, which macOS and Linux both answer. The two formats
+    are never compared with each other -- a token is only ever checked on
+    the machine that minted it -- so the only property required is that the
+    value stays constant for the life of one process and differs after a
+    pid is reused, which both satisfy.
+
+    Without the ps fallback a macOS token degraded to `<pid>.nostat` and
+    every stop there was accepted on the pid alone, i.e. exactly the
+    pid-reuse hazard the token exists to close.
+
+    `None` only when neither source answers.
+    """
     try:
         with open("/proc/%d/stat" % pid, "r", encoding="utf-8") as f:
             raw = f.read()
-    except OSError:
-        return None
-    try:
         return raw[raw.rfind(")") + 2:].split()[19]
-    except IndexError:
+    except (OSError, IndexError):
+        pass
+    try:
+        out = subprocess.run(["ps", "-p", str(pid), "-o", "lstart="],
+                             capture_output=True, text=True, timeout=5)
+    except (OSError, subprocess.SubprocessError):
         return None
+    started = out.stdout.strip()
+    # `ps` prints the field with spaces; the token is dot-joined and split
+    # on the first dot, so any whitespace here would survive fine -- but
+    # collapsing it keeps the token a single shell-safe word.
+    return started.replace(" ", "_") if started else None
 
 
 def _alive(pid: int) -> bool:

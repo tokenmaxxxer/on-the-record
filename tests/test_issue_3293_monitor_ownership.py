@@ -196,5 +196,20 @@ class TheHeartbeatPublishesItsOwnerTest(unittest.TestCase):
         self.assertIn("--owner", r.stdout + r.stderr)
 
 
+class ItIdentifiesProcessesWithoutProcTest(unittest.TestCase):
+    """macOS has no /proc; identity must not fall back to the pid alone."""
+
+    def test_start_time_still_answers_without_proc(self):
+        with mock.patch("builtins.open", side_effect=OSError):
+            start = mo._proc_start_tick(os.getpid())
+        self.assertIsNotNone(start)
+        self.assertNotIn(" ", start)
+
+    def test_the_token_is_not_downgraded_to_nostat(self):
+        with mock.patch("builtins.open", side_effect=OSError):
+            start = mo._proc_start_tick(os.getpid())
+        self.assertNotEqual(start, "nostat")
+
+
 if __name__ == "__main__":
     unittest.main()
