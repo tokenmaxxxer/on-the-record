@@ -158,6 +158,7 @@ class SpawnOneCrossFamilyAcceptanceTest(unittest.TestCase):
         roster_calls = []
         real_roster_register = spawn.roster_register
         spawn_cmd_calls = []
+        delivery_calls = []
 
         def spy_roster_register(key, entry):
             roster_calls.append((key, dict(entry)))
@@ -168,6 +169,9 @@ class SpawnOneCrossFamilyAcceptanceTest(unittest.TestCase):
             spawn_cmd_calls.append(list(skill_dirs))
             return (["cat"], {})
 
+        def spy_launch_delivery(cwd, issue, skill, skills_csv, deferred_task_text):
+            delivery_calls.append((cwd, issue, skill, skills_csv, deferred_task_text))
+
         skill_source = {"source": "skill-repo", "skill_dirs": [],
                        "skills": [], "skill_sha": None}
 
@@ -177,6 +181,12 @@ class SpawnOneCrossFamilyAcceptanceTest(unittest.TestCase):
         # 로 스텁해 오늘의 테스트 기대치(마운트 = BM25 top-k)를 그대로
         # 재사용한다. 자문 자체의 판단/트레이스/fail-open 동작은
         # ConsultJudgeStageTest 가 별도로 검증한다.
+        # 이슈 #3230: `_spawn_one` 은 이제 이 스텁을 스스로는 절대 안
+        # 부른다(디스패치 안에서 동기 호출이 없다) -- 그래도 남겨 둔다:
+        # `spy_launch_delivery` 가 실제로 `_launch_cross_family_delivery`
+        # 호출을 가로챈다는 것 자체가 이 스텁이 이제 죽은 코드라는 걸
+        # 증명하는 역할도 한다(호출됐다면 delivery_calls 가 비어 있을 리
+        # 없다).
         def stub_with_consult(task_text, skill, repo_root, issue, cwd, k=2, model=None,
                               home=None, target_repo_root=None, skills_csv=None):
             return (spawn._cross_family_skill_matches(task_text, skill, repo_root, k=k),
@@ -203,6 +213,8 @@ class SpawnOneCrossFamilyAcceptanceTest(unittest.TestCase):
                                lambda root, exclude_issue=None: ([], True)), \
              mock.patch.object(spawn, "roster_register", spy_roster_register), \
              mock.patch.object(spawn, "ledger_write", lambda *a, **k: None), \
+             mock.patch.object(spawn, "_launch_cross_family_delivery",
+                               spy_launch_delivery), \
              mock.patch.object(gh_rest, "fetch_issue",
                                lambda repo, issue: {"body": task_text, "title": "t",
                                                      "owner": "acme", "repo": "widget"}):
@@ -212,7 +224,7 @@ class SpawnOneCrossFamilyAcceptanceTest(unittest.TestCase):
         self.assertEqual(rc, 0)
         log_path = roster_calls[-1][1]["log"]
         delivered = Path(log_path).read_text()
-        return delivered, spawn_cmd_calls[-1]
+        return delivered, spawn_cmd_calls[-1], delivery_calls
 
     def _seed_cross_family_skill(self, root):
         d = root / "accessibility-aria-and-contrast-rules"
@@ -226,19 +238,32 @@ class SpawnOneCrossFamilyAcceptanceTest(unittest.TestCase):
             "---\n\n# body\n", encoding="utf-8")
         return d
 
-    def test_matching_task_gains_exactly_that_skill_in_mounts_and_directive(self):
+    def test_matching_task_defers_the_match_to_delivery_instead_of_mounting_it(self):
+        # 이슈 #3230: 매치되는 스킬이 있어도 디스패치 시점 마운트는 이제
+        # 항상 비어 있다(fail-open, "nothing at all") -- 실제 판정은
+        # `_launch_cross_family_delivery()` 에 위임돼 Popen 뒤 detached
+        # 서브프로세스에서 돈다. 이 테스트가 예전에 검증하던 "매치되면
+        # 그 자리에서 마운트된다"는 불변식은 의도적으로 사라졌다(라운드의
+        # 설계 변경 그 자체) -- 대신 위임이 실제로 일어났는지(cwd/issue/
+        # skill/task_text 가 맞는 인자로) 검증한다.
         with tempfile.TemporaryDirectory() as td, \
              tempfile.TemporaryDirectory() as skills_td:
             work = self._prep_repo(td)
             skill_repo_root = Path(skills_td)
-            skill_dir = self._seed_cross_family_skill(skill_repo_root)
-            delivered, mounted = self._run(
-                work,
-                "Redesign the landing page and fix its ARIA role and "
-                "contrast pair.",
-                skill_repo_root)
-        self.assertIn("accessibility-aria-and-contrast-rules", delivered)
-        self.assertEqual(mounted, [skill_dir])
+            task_text = ("Redesign the landing page and fix its ARIA role "
+                         "and contrast pair.")
+            self._seed_cross_family_skill(skill_repo_root)
+            delivered, mounted, delivery_calls = self._run(
+                work, task_text, skill_repo_root, issue=2001)
+        self.assertNotIn("accessibility-aria-and-contrast-rules", delivered)
+        self.assertIn("스킬 판정 보류(이슈 #3230)", delivered)
+        self.assertEqual(mounted, [])
+        self.assertEqual(len(delivery_calls), 1)
+        d_cwd, d_issue, d_skill, d_skills_csv, d_task_text = delivery_calls[0]
+        self.assertEqual(d_cwd, str(work))
+        self.assertEqual(d_issue, 2001)
+        self.assertEqual(d_skill, "implementation")
+        self.assertEqual(d_task_text, task_text)
 
     def test_non_matching_task_mounts_and_directive_byte_identical_to_baseline(self):
         with tempfile.TemporaryDirectory() as td_a, \
@@ -248,12 +273,12 @@ class SpawnOneCrossFamilyAcceptanceTest(unittest.TestCase):
             self._seed_cross_family_skill(skill_repo_root)
 
             work_a = self._prep_repo(td_a, "work-a")
-            delivered_a, mounted_a = self._run(
+            delivered_a, mounted_a, _calls_a = self._run(
                 work_a, "Refactor the internal batching pipeline.",
                 skill_repo_root, issue=2001)
 
             work_b = self._prep_repo(td_b, "work-b")
-            delivered_b, mounted_b = self._run(
+            delivered_b, mounted_b, _calls_b = self._run(
                 work_b, "Refactor the internal batching pipeline.",
                 skill_repo_root, issue=2001)
 

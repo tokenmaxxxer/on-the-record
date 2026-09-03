@@ -49,6 +49,16 @@ class OwnershipReportAltRecordSubdirsTest(unittest.TestCase):
     def test_no_delta_no_report(self):
         self.assertEqual(board.ownership_report(".", "coding", []), [])
 
+    def test_consult_log_unflagged_regardless_of_role(self):
+        # Issue #3230: `consult-log/` writes can now land inside the
+        # board_snapshot before/after delta window (the cross-family
+        # judge that writes it moved to a detached subprocess launched
+        # after Popen), so the timing guarantee that used to make this a
+        # non-issue no longer holds -- it needs the same path-only
+        # exemption `spikes/`/`postmortems/` already get.
+        delta = ["docs/issue-9/reports/consult-log/2026-09-03.md"]
+        self.assertEqual(board.ownership_report(".", "implementation", delta), [])
+
 
 if __name__ == "__main__":
     unittest.main()

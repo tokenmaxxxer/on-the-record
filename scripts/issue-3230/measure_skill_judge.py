@@ -73,6 +73,7 @@ class LedgerScanResult:
     files_scanned: list[str] = field(default_factory=list)
     raw_event_count: int = 0  # every skill_judge_perf event, including noise
     real_events: list[SkillJudgeEvent] = field(default_factory=list)
+    dispatch_ready_events: list["DispatchReadyEvent"] = field(default_factory=list)
 
 
 def resolve_ledger_paths(ledger_glob: str | None = None) -> list[str]:
@@ -123,6 +124,47 @@ def parse_skill_judge_events(path: str) -> tuple[int, list[SkillJudgeEvent]]:
     return raw, real
 
 
+@dataclass
+class DispatchReadyEvent:
+    wall_s_to_popen: float
+    skill_judge_outcome: str | None
+    skill: str | None
+    issue: object
+    source_file: str
+
+
+def parse_dispatch_ready_events(path: str) -> list[DispatchReadyEvent]:
+    """Issue #3230: `dispatch_ready_perf` events -- added by this round,
+    written unconditionally by every real `_spawn_one()` call (not gated
+    on skill-repo/issue-scoped, unlike `skill_judge_perf`) right where the
+    existing `bootstrap_timing` stderr line already prints, capturing the
+    SAME `total` (spawn-entry-to-just-before-Popen). This is the number
+    R007 actually asks to be cut -- the consumer-facing dispatch wait --
+    as opposed to `skill_judge_perf`'s `wall_s`, which is the judge
+    subprocess's own wall-clock time regardless of whether anything waits
+    on it. No plausibility filter needed: every event this script's own
+    unit tests generate is a real, explicit `ledger_write()` call, not a
+    monkeypatched `subprocess.run` side effect (contrast
+    `parse_skill_judge_events()`'s noise filter above), because this event
+    is written directly by `_spawn_one()`, not derived from a subprocess
+    call a test could stub out."""
+    events: list[DispatchReadyEvent] = []
+    for obj in _iter_jsonl(path):
+        if not isinstance(obj, dict) or obj.get("event") != "dispatch_ready_perf":
+            continue
+        wall = obj.get("wall_s_to_popen")
+        if not isinstance(wall, (int, float)):
+            continue
+        events.append(DispatchReadyEvent(
+            wall_s_to_popen=float(wall),
+            skill_judge_outcome=obj.get("skill_judge_outcome"),
+            skill=obj.get("skill"),
+            issue=obj.get("issue"),
+            source_file=path,
+        ))
+    return events
+
+
 def scan_ledgers(ledger_glob: str | None = None) -> LedgerScanResult:
     result = LedgerScanResult()
     for path in resolve_ledger_paths(ledger_glob):
@@ -130,6 +172,7 @@ def scan_ledgers(ledger_glob: str | None = None) -> LedgerScanResult:
         raw, real = parse_skill_judge_events(path)
         result.raw_event_count += raw
         result.real_events.extend(real)
+        result.dispatch_ready_events.extend(parse_dispatch_ready_events(path))
     return result
 
 
@@ -164,6 +207,29 @@ def timing_stats(events: list[SkillJudgeEvent]) -> dict:
     }
 
 
+def dispatch_ready_stats_by_outcome(events: list["DispatchReadyEvent"]) -> dict[str, dict]:
+    """Groups `dispatch_ready_perf` events by `skill_judge_outcome` and
+    reports median `wall_s_to_popen` per group -- issue #3230's before/
+    after split lives in this grouping: `"pending"` only exists after this
+    round's code (the judge deferred past Popen); `"completed"`/
+    `"fail-open"`/`"no-candidates"` only exist before it (the judge
+    resolved synchronously, in-line, before Popen); `"not-run"` is
+    unaffected either way (non-issue-scoped or non-skill-repo dispatch)."""
+    by_outcome: dict[str, list[float]] = {}
+    for e in events:
+        key = e.skill_judge_outcome or "unknown"
+        by_outcome.setdefault(key, []).append(e.wall_s_to_popen)
+    return {
+        outcome: {
+            "count": len(walls),
+            "median_s": statistics.median(walls),
+            "min_s": min(walls),
+            "max_s": max(walls),
+        }
+        for outcome, walls in sorted(by_outcome.items())
+    }
+
+
 def format_report(scan: LedgerScanResult) -> str:
     lines = []
     lines.append("issue-3230 skill_judge dispatch-wait -- measured report")
@@ -192,6 +258,39 @@ def format_report(scan: LedgerScanResult) -> str:
     lines.append(
         f"  outcome_ok=True: {stats['outcome_ok_count']}/{stats['count']}"
     )
+
+    lines.append("")
+    lines.append("-- dispatch_ready_perf: consumer-facing dispatch wait (issue #3230) --")
+    lines.append(
+        "  wall_s_to_popen = spawn-entry to just-before-Popen, grouped by "
+        "skill_judge_outcome"
+    )
+    by_outcome = dispatch_ready_stats_by_outcome(scan.dispatch_ready_events)
+    if not by_outcome:
+        lines.append(
+            "  no dispatch_ready_perf events found -- this event is new this "
+            "round; a machine that has not re-run spawn.py since this "
+            "change landed will show nothing here yet (not an error, see "
+            "empty-state discipline in this script's own docstring)."
+        )
+    else:
+        for outcome, s in by_outcome.items():
+            lines.append(
+                f"  skill_judge_outcome={outcome}: n={s['count']} "
+                f"median={s['median_s']:.3f}s min={s['min_s']:.3f}s "
+                f"max={s['max_s']:.3f}s"
+            )
+        if "pending" in by_outcome and any(
+                o in by_outcome for o in ("completed", "fail-open", "no-candidates")):
+            pending_median = by_outcome["pending"]["median_s"]
+            before_medians = [by_outcome[o]["median_s"] for o in
+                              ("completed", "fail-open", "no-candidates")
+                              if o in by_outcome]
+            lines.append(
+                f"  before (synchronous join, any of completed/fail-open/"
+                f"no-candidates) vs after (pending, deferred): "
+                f"{max(before_medians):.3f}s -> {pending_median:.3f}s"
+            )
     return "\n".join(lines)
 
 

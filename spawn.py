@@ -2689,22 +2689,26 @@ def main() -> int:
         # 서브프로세스로만 부르는 내부 서브커맨드 -- 사람이 직접 칠 일은
         # 없지만(문서화되지 않은 CLI 표면 그대로 나머지 role 들과 같은
         # 모양), 별도 진입점이라 인자 부족은 다른 role 과 같은 방식으로
-        # 거절한다.
-        if a.issue is None or not a.skill:
-            sys.exit("사용법: spawn.py cross-family-deliver --issue <n> --skill "
-                      "<skill> [--skills <csv>] --task-file <path> -C <워커 cwd>")
+        # 거절한다. skill 이름은 positional `task` 로 받는다(consult
+        # <role> "<question>" 과 같은 자리 규칙) -- `--skill` 은
+        # main()의 stage-0 스킬 조회 분기가 이미 선점했다(위
+        # `_launch_cross_family_delivery()`의 cmd 조립 코멘트).
+        skill_name = a.task
+        if a.issue is None or not skill_name:
+            sys.exit("사용법: spawn.py cross-family-deliver <skill> --issue <n> "
+                      "[--skills <csv>] --task-file <path> -C <워커 cwd>")
         task_text = ""
         if a.task_file:
             try:
                 task_text = Path(a.task_file).read_text(encoding="utf-8")
             except OSError as exc:
-                print(f"[{a.skill}] cross-family-deliver: task-file 읽기 실패 -- "
+                print(f"[{skill_name}] cross-family-deliver: task-file 읽기 실패 -- "
                       f"correction 못 보냄: {exc}", file=sys.stderr)
                 return 1
             finally:
                 with contextlib.suppress(OSError):
                     os.unlink(a.task_file)
-        _deliver_cross_family_amendment(a.cwd, a.issue, a.skill, a.skills, task_text)
+        _deliver_cross_family_amendment(a.cwd, a.issue, skill_name, a.skills, task_text)
         return 0
     if a.role == "consult":
         if not a.task or not a.consult_question:
@@ -3974,8 +3978,13 @@ def _launch_cross_family_delivery(cwd: str, issue: int, skill: str,
             os.unlink(task_path)
         return
     log_path = Path(str(cwd) + ".cross-family-deliver.log")
+    # 이슈 #3230: skill 이름은 `--skill` 이 아니라 positional `task` 로
+    # 넘긴다 -- `--skill` 은 이미 `main()`의 stage-0 스킬 조회 분기(`if
+    # a.skill:`, role dispatch 체인보다 먼저 검사된다)가 선점한 플래그라,
+    # 여기서 또 쓰면 이 서브커맨드 자체가 그 분기로 잘못 빠진다(consult
+    # <role> "<question>" 과 같은 자리 규칙: skill/role 이름은 positional).
     cmd = [sys.executable, str(Path(__file__).resolve()), "-C", str(Path(cwd).resolve()),
-           "cross-family-deliver", "--issue", str(issue), "--skill", skill,
+           "cross-family-deliver", skill, "--issue", str(issue),
            "--task-file", task_path]
     if skills_csv:
         cmd += ["--skills", skills_csv]
