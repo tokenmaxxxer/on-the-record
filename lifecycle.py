@@ -1069,16 +1069,29 @@ def _prune_worktrees(repo: Path, max_age_hours: float | None = None,
                   f"[{removed.stderr.strip()}]")
 
 
-def roster_clean(wb: Path, issue: int | None, repo: Path | None = None) -> int:
-    """`spawn.py clean [--issue N]`: 안전한 것만 지운다 — 미커밋 변경 없음 +
-    origin 에 없는 커밋 없음. 워크스페이스 디렉터리는 그 조건만 지키면
-    그대로 삭제한다(이슈 #1124 범위 밖). 형제 파일(로그 등)은
+def roster_clean(wb: Path, issue: int | None, repo: Path | None = None,
+                 dry_run: bool = False) -> int:
+    """`spawn.py clean [--issue N] [--dry-run]`: 안전한 것만 지운다 — 미커밋
+    변경 없음 + origin 에 없는 커밋 없음. 워크스페이스 디렉터리는 그 조건만
+    지키면 그대로 삭제한다(이슈 #1124 범위 밖). 형제 파일(로그 등)은
     `_delete_workspace()` 가 archive-or-delete 판정을 한다.
 
     `repo`(주어지면, 보통 호출 시점의 `-C`/cwd)에 등록된 stale `git
     worktree` 항목도 같이 정리한다(issue #2383 — 누적된 채 방치되지 않게
-    routine landing/cleanup 의 일부로 만든다)."""
-    if repo is not None:
+    routine landing/cleanup 의 일부로 만든다).
+
+    `dry_run` (이슈 #3274): 아무것도 지우지 않고 무엇을 지웠을지만 찍는다.
+    이 함수는 원래 이 파라미터가 없었고 `spawn.py` 의 `clean` 분기도
+    `a.dry_run` 을 넘기지 않았다 — 최상위 `--dry-run` 플래그는 파싱만 되고
+    이 경로에서 읽히지 않아, `spawn.py clean --dry-run` 이 실제로 삭제했다.
+    바로 두 줄 아래 `sweep-orphans` 분기는 같은 플래그를 제대로 넘긴다.
+    운영자가 PR 비교용으로 "읽기 전용"이라 믿고 두 번 실행했고 워크스페이스
+    하나가 실제로 사라졌다 — 무엇이었는지는 아무 기록도 남지 않아 특정할 수
+    없었다. 되돌릴 수 없는 행동에 안전해 보이는 이름이 붙어 있는 것이
+    이 결함의 본체다.
+
+    `worktree` prune 도 dry-run 에서는 건너뛴다 — 그것도 상태를 바꾼다."""
+    if repo is not None and not dry_run:
         _prune_worktrees(repo)
     live, unreadable = _sp._live_workspaces_union()
     for msg in unreadable:
@@ -1100,15 +1113,28 @@ def roster_clean(wb: Path, issue: int | None, repo: Path | None = None) -> int:
             print(f"남김 ({detail}): {w.name}")
             kept += 1
             continue
+        if dry_run:
+            # 이슈 #3274: 여기서 실제로 지우지 않는다. 세는 건 그대로 세서
+            # 요약 숫자가 실제 실행과 같게 나오게 한다 — dry-run 이 다른
+            # 숫자를 내면 비교 용도로 쓸 수 없다.
+            print(f"[dry-run] 지웠을 것: {w.name}")
+            removed += 1
+            continue
         try:
             _sp._delete_workspace(w, wb, log_outcomes, archive_dir)
         except Exception as ex:
             print(f"실패 (삭제 중 예외): {w.name}  [{ex}]")
             failed += 1
             continue
+        # 이슈 #3274: 되돌릴 수 없는 행동은 흔적을 남긴다. stdout 한 줄은
+        # 호출자가 잡아두지 않으면 사라진다 — 실제로 그래서 무엇이
+        # 지워졌는지 특정할 수 없었다.
+        _sp.ledger_write({"event": "workspace_reclaimed", "workspace": w.name,
+                      "path": str(w), "issue": issue, "ts": int(time.time())})
         print(f"지움: {w.name}")
         removed += 1
-    summary = f"정리 끝 — 지움 {removed}, 남김 {kept}"
+    prefix = "[dry-run] " if dry_run else ""
+    summary = f"{prefix}정리 끝 — 지움 {removed}, 남김 {kept}"
     if failed:
         summary += f", 실패 {failed}"
     print(summary)

@@ -2930,7 +2930,11 @@ def main() -> int:
                       repo=_repo_identity(a.cwd), max_wait_min=a.max_wait,
                       self_heal=a.self_heal)
     if a.role == "clean":
-        return roster_clean(_workspace_base(), a.issue, Path(a.cwd).resolve())
+        # Issue #3274: `a.dry_run` was parsed and never passed here, so
+        # `clean --dry-run` really deleted. The sibling dispatch two
+        # lines below always passed it correctly.
+        return roster_clean(_workspace_base(), a.issue, Path(a.cwd).resolve(),
+                            dry_run=a.dry_run)
     if a.role == "sweep-orphans":
         return sweep_orphans_cli(_workspace_base(), a.dry_run)
     if a.role == "doctor":
