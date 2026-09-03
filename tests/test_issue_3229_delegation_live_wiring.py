@@ -34,14 +34,27 @@ innocuous, individually-covered actions immediately preceding a
 text-only ask about a completely different, dangerous, never-attempted
 action was suppressed too, because the transcript carries no field
 correlating a specific tool_use event to the ask that follows it (issue
-#3061 round 6). The honest resolution taken here (see
-`delegation_state.py`'s own module comment above `_live_stop_decision_body`
-for the full reasoning): the previous-episode-coverage path never
-suppresses anymore, at any episode size, including the single-action case
-the old positive test used -- over-refusing is the correct failure
-direction. `CoveredCleanEpisodeSuppressesTest` below now demonstrates that
-even a matching, single-action episode declines; `AdjacencyDoesNotImplyCoverageTest`
-reproduces PR #3236's own multi-action defect case directly.
+#3061 round 6). Round 2's fix retired the previous-episode-coverage path
+entirely -- every return site became `suppress: False` -- and
+`CoveredCleanEpisodeSuppressesTest`'s own assertion was rewritten to
+match ("still leaves stop untouched"), but its CLASS NAME was not
+updated, and stayed "Suppresses" through PR #3241/#3236/#3248's own
+reviews -- exactly how the round-2 over-correction (a permanent no-op:
+the hook never suppresses anything, for any input, while still running
+on every Stop event) survived a full round of review undetected. PR
+#3248's round-2 verification named it directly (Section B).
+
+issue #3229 round 3 (this file): restores one narrow, structurally-bound
+suppression path -- see `delegation_state.py`'s own module comment above
+`_live_stop_decision_body` for the full reasoning, including the named
+residual risk. `CoveredCleanEpisodeSuppressesTest`'s assertion is fixed
+to match its own class name again (a real `decision:"block"` case);
+`GenuineRedundantAskSuppressesTest` adds two more independently-shaped
+suppress cases; `AdjacencyDoesNotImplyCoverageTest` and
+`PriorReviewMustNotVariantsTest` reconstruct PR #3236's original
+under-refusal case plus its three PR #3248 variants, all still declining;
+`SingleFailedUnrelatedActionResidualRiskTest` documents, rather than
+hides, the one gap the narrow fix does not close.
 
 Classification (Step 3a): every requirement here is High -- a bug in
 either direction (suppressing a genuine escalation, or never suppressing
@@ -55,8 +68,13 @@ Traceability:
   - issue's must-not (action outside manifest) -> test_action_outside_manifest_leaves_stop_untouched
   - issue's must-not (no derivable action)     -> test_no_derivable_action_leaves_stop_untouched
   - issue's must-not (episode not complete)    -> test_incomplete_episode_leaves_stop_untouched
-  - covered-episode adjacency is not enough    -> CoveredCleanEpisodeSuppressesTest,
-    to refuse the stop (round 2, PR #3236 #4)     AdjacencyDoesNotImplyCoverageTest
+  - genuine redundant ask suppresses           -> CoveredCleanEpisodeSuppressesTest,
+    (round 3)                                     GenuineRedundantAskSuppressesTest
+  - covered-episode adjacency is not enough    -> AdjacencyDoesNotImplyCoverageTest,
+    to refuse the stop on its own               PriorReviewMustNotVariantsTest
+    (round 2, PR #3236 #4; reconfirmed round 3)
+  - single-failed-action residual risk,        -> SingleFailedUnrelatedActionResidualRiskTest
+    disclosed not hidden (round 3)
   - issue's must-not (never fire w/ no grant)  -> test_no_grant_produces_no_stderr_either
   - "says so where an operator can see it"     -> test_every_other_decline_produces_a_stderr_reason
   - retry-loop safety (issue #1725 contract)   -> test_stop_hook_active_never_suppresses_even_when_covered
@@ -73,7 +91,9 @@ continuation behavior end-to-end against the real `claude` binary (that
 experiment -- and the raw captured payloads it produced -- lives in
 docs/issue-3229's record, not in a pytest suite that must run offline and
 fast); it only proves the hook's OWN decision given a payload, which is
-the part this repository's CI can actually check deterministically.
+the part this repository's CI can actually check deterministically. A
+second, disclosed residual is named above
+(`SingleFailedUnrelatedActionResidualRiskTest`).
 
 Run: python3 -m pytest tests/test_issue_3229_delegation_live_wiring.py -q
 """
@@ -119,10 +139,22 @@ def _assistant_text_event(ts: datetime, text: str) -> dict:
 
 
 def _assistant_tool_use_event(ts: datetime, tool: str, resource_field: str,
-                               resource_value: str) -> dict:
+                               resource_value: str, tool_use_id: str = "t1") -> dict:
     return {"type": "assistant", "timestamp": ts.isoformat(),
-            "message": {"content": [{"type": "tool_use", "id": "t1", "name": tool,
+            "message": {"content": [{"type": "tool_use", "id": tool_use_id, "name": tool,
                                       "input": {resource_field: resource_value}}]}}
+
+
+def _tool_result_event(ts: datetime, tool_use_id: str, is_error: bool,
+                        text: str = "error") -> dict:
+    # issue #3229 round 3: a `tool_result` block is a structural harness
+    # fact about what the TOOL returned (`is_error`), not an inference
+    # over what the model wrote -- this is what
+    # `trajectory_analyzer.tool_result_index()` reads, and what the round
+    # 3 single-failed-action suppression path keys off of.
+    return {"type": "user", "timestamp": ts.isoformat(),
+            "message": {"content": [{"type": "tool_result", "tool_use_id": tool_use_id,
+                                      "is_error": is_error, "content": text}]}}
 
 
 class _HookHarness(unittest.TestCase):
@@ -186,28 +218,38 @@ class RealPayloadShapeTest(_HookHarness):
 
 
 class CoveredCleanEpisodeSuppressesTest(_HookHarness):
-    """issue #3229 round 2 (PR #3236 finding 4): this class used to be the
-    one positive partition (every AND-chain condition true -> suppress).
-    That positive case is retired -- even this baseline, single-action,
-    otherwise-clean episode no longer suppresses, because "every action in
-    the preceding episode is covered" is adjacency, not a sound binding to
-    what the ask is actually about (see delegation_state.py's own module
-    comment above `_live_stop_decision_body` for the full reasoning). This
-    now demonstrates the honest, over-refusing direction even on the
-    friendliest possible input, not just on PR #3236's adversarial one
-    (that reproduction lives in AdjacencyDoesNotImplyCoverageTest below)."""
+    """issue #3229 round 3 (PR #3248 Section B, the round-3 defect): this
+    class name has said "Suppresses" since round 1, but round 2 (PR #3236
+    finding 4) rewrote its assertion to check the exact opposite --
+    "still leaves stop untouched" -- while leaving the class name
+    unchanged. That mismatch is how the round-2 over-correction (every
+    return site in `_live_stop_decision_body()` became `suppress: False`,
+    permanently) survived a round of review: a reader trusting the class
+    name would believe suppression was still being exercised here. Fixed
+    to actually assert suppression again, now that round 3 restores the
+    narrow single-failed-action path (delegation_state.py's own module
+    comment above `_live_stop_decision_body` has the full reasoning): a
+    `git push` covered by the manifest, denied (`is_error=True` on its own
+    `tool_result` -- the structural signal round 3 keys off, not the
+    ask's prose), with nothing else in the episode, immediately followed
+    by "shall I proceed anyway?" -- the textbook redundant-ask case this
+    hook exists to remove."""
 
-    def test_covered_clean_episode_still_leaves_stop_untouched(self):
+    def test_covered_clean_episode_suppresses(self):
         self._grant([{"tool": "Bash", "resource": "git push*", "repo": "*"}])
         _write_log(self.transcript, [
             _assistant_tool_use_event(self.now, "Bash", "command", "git push origin issue-x"),
-            _assistant_text_event(self.now + timedelta(seconds=1),
+            _tool_result_event(self.now + timedelta(seconds=1), "t1", is_error=True,
+                                text="remote rejected: push declined"),
+            _assistant_text_event(self.now + timedelta(seconds=2),
                                    "Push was denied, shall I proceed anyway?"),
         ])
         r = self._run("Push was denied, shall I proceed anyway?")
         self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertEqual(r.stdout, "")
-        self.assertIn("no field correlating this ask", r.stderr)
+        self.assertNotEqual(r.stdout, "", "expected a decision:\"block\" hook_output on stdout")
+        out = json.loads(r.stdout)
+        self.assertEqual(out.get("decision"), "block")
+        self.assertIn("already-attempted, already-covered", r.stderr)
 
 
 class AdjacencyDoesNotImplyCoverageTest(_HookHarness):
@@ -238,6 +280,135 @@ class AdjacencyDoesNotImplyCoverageTest(_HookHarness):
                           "force-push was never attempted, so nothing in the "
                           "preceding covered episode can be bound to it")
         self.assertIn("no field correlating this ask", r.stderr)
+
+
+class GenuineRedundantAskSuppressesTest(_HookHarness):
+    """issue #3229 round 3: two more genuine redundant-ask cases beyond
+    `CoveredCleanEpisodeSuppressesTest`'s `git push`, each with a
+    different tool/resource shape, all sharing the one structural pattern
+    round 3 suppresses on: exactly one tool_use event in the episode, that
+    action covered by the manifest, and its own `tool_result` reporting
+    `is_error=True` -- attempted, blocked, then asked about again."""
+
+    def test_covered_write_blocked_by_a_guard_suppresses(self):
+        self._grant([{"tool": "Write", "resource": "*", "repo": "*"}])
+        _write_log(self.transcript, [
+            _assistant_tool_use_event(self.now, "Write", "file_path", "output.log"),
+            _tool_result_event(self.now + timedelta(seconds=1), "t1", is_error=True,
+                                text="write blocked: guard denied this path"),
+            _assistant_text_event(self.now + timedelta(seconds=2),
+                                   "The write to output.log was blocked -- should I try again?"),
+        ])
+        r = self._run("The write to output.log was blocked -- should I try again?")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        out = json.loads(r.stdout)
+        self.assertEqual(out.get("decision"), "block")
+
+    def test_covered_deploy_command_failed_suppresses(self):
+        self._grant([{"tool": "Bash", "resource": "npm run deploy", "repo": "*"}])
+        _write_log(self.transcript, [
+            _assistant_tool_use_event(self.now, "Bash", "command", "npm run deploy"),
+            _tool_result_event(self.now + timedelta(seconds=1), "t1", is_error=True,
+                                text="deploy failed: connection timed out"),
+            _assistant_text_event(self.now + timedelta(seconds=2),
+                                   "The deploy failed with a timeout -- should I retry it?"),
+        ])
+        r = self._run("The deploy failed with a timeout -- should I retry it?")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        out = json.loads(r.stdout)
+        self.assertEqual(out.get("decision"), "block")
+
+
+class SingleFailedUnrelatedActionResidualRiskTest(_HookHarness):
+    """issue #3229 round 3: the named, disclosed residual risk of the
+    single-failed-action suppression path (see delegation_state.py's own
+    module comment above `_live_stop_decision_body` for the full
+    reasoning). `is_error=True` on the episode's one action is a
+    structural fact about what the TOOL returned; it is NOT proof the
+    ask that follows is about THAT action. A single covered action that
+    fails for a reason unrelated to the ask, immediately followed by a
+    pivot to a completely different, dangerous, never-attempted topic,
+    is NOT distinguishable from the genuine redundant-ask shape by
+    anything this transcript format carries -- round 3 accepts this as a
+    real, narrower-than-round-2 gap rather than hiding it. This test
+    documents the actual (not hoped-for) behavior: it suppresses, which
+    is the wrong answer for THIS specific case, though the round-3
+    record explains why this composite shape is comparatively rare next
+    to round 2's defect surface (any covered episode, regardless of
+    success/failure)."""
+
+    def test_single_failed_covered_action_then_unrelated_dangerous_ask_still_suppresses(self):
+        self._grant([{"tool": "Bash", "resource": "*", "repo": "*"}])
+        ask = ("Never mind that -- should I force-push origin main to roll "
+               "the release branch back to the previous tag instead?")
+        _write_log(self.transcript, [
+            _assistant_tool_use_event(self.now, "Bash", "command", "curl https://example.com/status"),
+            _tool_result_event(self.now + timedelta(seconds=1), "t1", is_error=True,
+                                text="curl: (28) connection timed out"),
+            _assistant_text_event(self.now + timedelta(seconds=2), ask),
+        ])
+        r = self._run(ask)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        # Documented residual risk, not the desired outcome: this DOES
+        # suppress, even though the ask (force-push origin main) has
+        # nothing to do with the failed curl call that precedes it.
+        out = json.loads(r.stdout)
+        self.assertEqual(out.get("decision"), "block",
+                          "if this assertion ever starts failing, the residual risk "
+                          "named in delegation_state.py's module comment and this "
+                          "test's own docstring may have been narrowed or closed -- "
+                          "update both together rather than treating this as a bug")
+
+
+class PriorReviewMustNotVariantsTest(_HookHarness):
+    """issue #3229 round 3: the three independently-constructed variants
+    from PR #3248's round-2 verification record (Section A) of PR #3236's
+    original adjacency reproduction -- different action/ask shapes, same
+    underlying defect class this suite must keep refusing. None of these
+    actions ever error (no `tool_result` recorded at all, the realistic
+    shape of an ordinary successful action), so the round-3
+    single-failed-action suppression path never engages regardless of
+    episode size -- must all leave the stop untouched exactly as PR #3248
+    found."""
+
+    def test_covered_write_then_unrelated_ask_about_deleting_prod_backups(self):
+        self._grant([{"tool": "Write", "resource": "*", "repo": "*"}])
+        ask = ("Finished writing the release notes. Should I also delete "
+               "the production database backups from last month to free "
+               "up space?")
+        _write_log(self.transcript, [
+            _assistant_tool_use_event(self.now, "Write", "file_path", "RELEASE_NOTES.md"),
+            _assistant_text_event(self.now + timedelta(seconds=1), ask),
+        ])
+        r = self._run(ask)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(r.stdout, "")
+
+    def test_covered_npm_test_then_unrelated_ask_about_force_publish(self):
+        self._grant([{"tool": "Bash", "resource": "npm test", "repo": "*"}])
+        ask = "Tests are green. Should I force-publish this over the existing tagged release?"
+        _write_log(self.transcript, [
+            _assistant_tool_use_event(self.now, "Bash", "command", "npm test"),
+            _assistant_text_event(self.now + timedelta(seconds=1), ask),
+        ])
+        r = self._run(ask)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(r.stdout, "")
+
+    def test_covered_edit_and_read_pair_then_unrelated_ask_about_revoking_admin(self):
+        self._grant([{"tool": "Edit", "resource": "*", "repo": "*"},
+                      {"tool": "Read", "resource": "*", "repo": "*"}])
+        ask = "By the way, should I also revoke the ops team's admin access on this repo?"
+        _write_log(self.transcript, [
+            _assistant_tool_use_event(self.now, "Read", "file_path", "CONTRIBUTORS.md",
+                                       tool_use_id="t1"),
+            _assistant_tool_use_event(self.now + timedelta(seconds=1), "Edit", "file_path",
+                                       "CONTRIBUTORS.md", tool_use_id="t2"),
+            _assistant_text_event(self.now + timedelta(seconds=2), ask),
+        ])
+        r = self._run(ask)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(r.stdout, "")
 
 
 class MustNotSuppressTest(_HookHarness):
