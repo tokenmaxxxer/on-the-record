@@ -674,6 +674,19 @@ against its parent's context. `run_pair.sh` now strips every `CLAUDE_*`/
 `MUSTER_*` env var (`env -u ...`, computed from `env | grep`) before
 invoking the child, for both arms.
 
+**A sixth trap, same subsystem (issue #3231 round 4):** the `git clone
+--quiet "$REPO_URL" "$seed"` line that seeds each paired-run workspace had
+no `GIT_TERMINAL_PROMPT`/`GIT_ASKPASS` guard, so a revoked/private
+`$REPO_URL` would block indefinitely on an interactive credential prompt
+this script has no tty to answer for, rather than failing fast — the same
+hazard PR #3235/#3256 fixed for `skills.py`'s skill-repository clone.
+`run_pair.sh` now sets `GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=true
+GIT_SSH_COMMAND="${GIT_SSH_COMMAND:-ssh} -o BatchMode=yes"` on that clone
+(the third key closes the separate SSH-key-passphrase prompt path, not
+reachable through today's `https://` `$REPO_URL` but closed at the
+mechanism regardless — see `skills.py`'s `_skill_repo_git_env()`
+docstring for the same reasoning applied to its own call site).
+
 ### Package-registry access (issue #38)
 
 A fresh sandboxed workspace has no package cache, so `go build`/`npm
