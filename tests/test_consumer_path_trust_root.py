@@ -270,3 +270,75 @@ def test_malformed_manifest_json_excludes_pair(tmp_path):
     with pytest.raises(verify_manipulation.VerificationFailure,
                         match="not valid JSON"):
         verify_manipulation.verify(manifest_path, tmp_path / "transport.json")
+
+
+# --- credential provisioning (issue-3245 independent-verification-2) ----
+
+@pytest.fixture
+def credentials_source(tmp_path):
+    source = tmp_path / "fake-real-home"
+    (source / ".claude").mkdir(parents=True)
+    (source / ".claude" / ".credentials.json").write_text(
+        '{"fake": "token"}')
+    return source
+
+
+def test_provision_credentials_copies_only_the_credentials_file(
+        tmp_path, credentials_source):
+    home = tmp_path / "arm-home"
+    home.mkdir()
+    record = prepare_arms.provision_credentials(home, credentials_source)
+    dest = home / ".claude" / ".credentials.json"
+    assert dest.is_file()
+    assert dest.read_text() == '{"fake": "token"}'
+    assert record["provisioned"] is True
+    # Narrow copy only -- no plugin registration, no marketplace config,
+    # no ~/.claude.json alongside the credentials file.
+    assert sorted(p.name for p in (home / ".claude").iterdir()) == \
+        [".credentials.json"]
+    assert not (home / ".claude.json").exists()
+
+
+def test_provision_credentials_fails_closed_without_a_source(tmp_path):
+    home = tmp_path / "arm-home"
+    home.mkdir()
+    empty_source = tmp_path / "no-credentials-here"
+    empty_source.mkdir()
+    with pytest.raises(prepare_arms.ArmPreparationError, match="credentials"):
+        prepare_arms.provision_credentials(home, empty_source)
+
+
+def test_build_manifest_provisions_credentials_identically_on_both_arms(
+        populated_skills_root, credentials_source):
+    manifest, created_dirs = prepare_arms.build_manifest(
+        populated_skills_root, "skill-a", "sonnet", "test-operator",
+        credentials_source=credentials_source)
+    try:
+        on = [a for a in manifest["arms"] if a["arm"] == "on"][0]
+        off = [a for a in manifest["arms"] if a["arm"] == "off"][0]
+        assert on["credentials"]["provisioned"] is True
+        assert off["credentials"]["provisioned"] is True
+        on_dest = Path(on["home"]) / ".claude" / ".credentials.json"
+        off_dest = Path(off["home"]) / ".claude" / ".credentials.json"
+        assert on_dest.read_text() == off_dest.read_text()
+        # Credentials live under HOME, not under the skills root -- the
+        # on/off manipulated variable (skill_files/absence_check) is
+        # untouched by provisioning.
+        assert on["skill_files"] != []
+        assert off["skill_files"] == []
+    finally:
+        prepare_arms._cleanup(created_dirs)
+
+
+def test_build_manifest_without_credentials_source_stays_unauthenticated(
+        populated_skills_root):
+    """Default (no credentials_source) preserves the pre-fix behavior --
+    existing callers (this test file's own other tests, --dry-run
+    inspection) do not require a real credentials file to exist."""
+    manifest, created_dirs = prepare_arms.build_manifest(
+        populated_skills_root, "skill-a", "sonnet", "test-operator")
+    try:
+        for arm in manifest["arms"]:
+            assert arm["credentials"] is None
+    finally:
+        prepare_arms._cleanup(created_dirs)

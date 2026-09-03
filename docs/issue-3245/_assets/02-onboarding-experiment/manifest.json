@@ -1,0 +1,1822 @@
+{
+  "arms": [
+    {
+      "absence_check": null,
+      "arm": "on",
+      "credentials": {
+        "dest": "/tmp/consumer-path-on-home-s9675h5u/.claude/.credentials.json",
+        "method": "copied .claude/.credentials.json only -- no plugin registration, no marketplace config, no ~/.claude.json",
+        "provisioned": true,
+        "source": "/home/jwjung/.claude/.credentials.json"
+      },
+      "home": "/tmp/consumer-path-on-home-s9675h5u",
+      "skill_files": [
+        {
+          "path": "accessibility-aria-and-contrast-rules/SKILL.md",
+          "sha256": "6aa249b97d0b0e834163038be7401101c99deb46654e6f2f62dc7c690232925e",
+          "size_bytes": 8202
+        },
+        {
+          "path": "accessibility-aria-and-contrast-rules/references/rules.md",
+          "sha256": "1f4339684dddae464a3553fe8217af735aa11e5c19952c082196762f7b4c594e",
+          "size_bytes": 14126
+        },
+        {
+          "path": "adversarial-review/SKILL.md",
+          "sha256": "d61daba9c4a34fa277e5547abced503434e31a8efc612786083831155cbef3b3",
+          "size_bytes": 11483
+        },
+        {
+          "path": "agent-coordination/SKILL.md",
+          "sha256": "5ff8440db1d5beb6144d0b4fc3fa3f539d59220e1abb0c4cf9536a5005a81ad2",
+          "size_bytes": 4902
+        },
+        {
+          "path": "agent-coordination/references/rules.md",
+          "sha256": "01407e78785f694e50185eb6ef885cf7008a34f87ac449a5937cd2abce56fd46",
+          "size_bytes": 12546
+        },
+        {
+          "path": "api-design-error-design/SKILL.md",
+          "sha256": "6e6be12a99aacaffd36eb3f652b1dd295d9e341b14958f73708108fa3d17e466",
+          "size_bytes": 10368
+        },
+        {
+          "path": "api-design-http-semantics/SKILL.md",
+          "sha256": "b39edd69af38616e3accbe1b226dcc8810c0cece9e6819ee9c85500993f842ea",
+          "size_bytes": 8425
+        },
+        {
+          "path": "api-design-payload-design/SKILL.md",
+          "sha256": "1f45b6790f3d397430624dfb54c98ef1d92099c14fd64a546eefd529b96331e5",
+          "size_bytes": 9347
+        },
+        {
+          "path": "api-design-resource-modeling/SKILL.md",
+          "sha256": "056fb90bee18d16f55cef4d91ca3dcf3a5abf7043b9770546b2d0a60c87e3354",
+          "size_bytes": 9608
+        },
+        {
+          "path": "api-design-tool-landscape/SKILL.md",
+          "sha256": "c3489f76404d1c65278d32166df44974b67dba8af7bc9f72517df31978c938eb",
+          "size_bytes": 4639
+        },
+        {
+          "path": "api-design-versioning-evolution/SKILL.md",
+          "sha256": "39ba6416b0447b0da5ce8aefad2f2e8981c468268392e234a3cf72bd2cf56e6d",
+          "size_bytes": 11127
+        },
+        {
+          "path": "architecture-coupling-classification/SKILL.md",
+          "sha256": "ddf4f0713b5fead2b71eb63f2213386d82fc426e99c4c6509ef4938d770f77ac",
+          "size_bytes": 8312
+        },
+        {
+          "path": "architecture-coupling-classification/references/rules.md",
+          "sha256": "0d2854ddd7b66424a9b752e7291301a0ef1ecaa11b6558b63586d2f772cf2775",
+          "size_bytes": 13375
+        },
+        {
+          "path": "architecture-decomposition-strategy/SKILL.md",
+          "sha256": "70826db6d5e3432ed66992aa7de96dc612c8bbeee8e5c3d2df93cb80d9d66381",
+          "size_bytes": 15335
+        },
+        {
+          "path": "architecture-dependency-direction/SKILL.md",
+          "sha256": "1f99b922a3a412ee692a0de93e1c9015e9623379321b4e6a215c20a86b0354a7",
+          "size_bytes": 7818
+        },
+        {
+          "path": "architecture-dependency-direction/references/rules.md",
+          "sha256": "ad0943f098931a6dec3eec862c442dff032e6949a2fef2c444c130fb075d56f5",
+          "size_bytes": 12919
+        },
+        {
+          "path": "architecture-interface-contract-shape/SKILL.md",
+          "sha256": "ec21cfd2b881d0672543c6ca5e397bc4535fa3251d3a9799714ef0c232ed8bec",
+          "size_bytes": 8841
+        },
+        {
+          "path": "architecture-interface-contract-shape/references/rules.md",
+          "sha256": "280578ebb000ebda19f11e622849731d46486ba6872aa865c1a3e539f42a78dc",
+          "size_bytes": 13481
+        },
+        {
+          "path": "architecture-module-boundary-definition/SKILL.md",
+          "sha256": "66c370aecb7ee7b3a330a98e77238ce660dc12d16159424f7398a0e5023553e4",
+          "size_bytes": 7712
+        },
+        {
+          "path": "architecture-module-boundary-definition/references/rules.md",
+          "sha256": "db9a2f5abbd951f69df7f85614ca972d974ceae79acd9df3e9ec5d442378881f",
+          "size_bytes": 11148
+        },
+        {
+          "path": "blameless-postmortem/SKILL.md",
+          "sha256": "91c98fe6c01a9a125e51cfb323524c6f3a9722f117f4d287d251487ef3b624ff",
+          "size_bytes": 10338
+        },
+        {
+          "path": "brand-design-brand-consistency-governance/SKILL.md",
+          "sha256": "3b4995ce5d6589c56ed105cec88f06d02aea225b2b71927060e4dd2f058e23ba",
+          "size_bytes": 5987
+        },
+        {
+          "path": "brand-design-brand-identity-strategy/SKILL.md",
+          "sha256": "ff8fb5f72b9bdb0692e5daf6e0775a6fba657d7880481eff87f472878b15d654",
+          "size_bytes": 6880
+        },
+        {
+          "path": "brand-design-color-visibility/SKILL.md",
+          "sha256": "fbe42c8cf15374f374041fcd7f73b1fbadef29542f86063ae3f65d5ffeaea0ff",
+          "size_bytes": 6346
+        },
+        {
+          "path": "brand-design-icon-system-svg/SKILL.md",
+          "sha256": "32479ef4016bc1e4d444c05bbb9e7b7a52a233cf70274ea018b12d2388e8a50a",
+          "size_bytes": 4817
+        },
+        {
+          "path": "brand-design-logo-clear-space-size/SKILL.md",
+          "sha256": "11455944d4555b750c5612c12de2253a8bbe41a3233bfe5622c2c5a5a305e363",
+          "size_bytes": 6157
+        },
+        {
+          "path": "brand-design-typography-pairing/SKILL.md",
+          "sha256": "1666064aa4f3629ab37967e278d43bad7d5c96b79cc29b2daff22bc2ac561f81",
+          "size_bytes": 5993
+        },
+        {
+          "path": "business-model-design-canvas-construction/SKILL.md",
+          "sha256": "468c2bc32f4325eefa3d39951a11a401f8d42b58d046db733e65fa8d22ad7d90",
+          "size_bytes": 5627
+        },
+        {
+          "path": "business-model-design-platform-design/SKILL.md",
+          "sha256": "993c8991f967674509644ed260fe3448af835db32e9775cb2f2183316a6879dd",
+          "size_bytes": 4652
+        },
+        {
+          "path": "business-model-design-revenue-model-selection/SKILL.md",
+          "sha256": "b60c71cb12a1ddc8ec808cbcbe327f94ece582ff1f2d767e54b2b31f9d88f9b5",
+          "size_bytes": 5431
+        },
+        {
+          "path": "business-model-design-value-proposition-fit/SKILL.md",
+          "sha256": "ad2cddfecc178c46e0a4f75878b07299c03bce819764ae92c8970e36afd0fdfa",
+          "size_bytes": 4801
+        },
+        {
+          "path": "capacity-planning-cost-attribution-at-trigger/SKILL.md",
+          "sha256": "848582b1154a67710ca15e67dba419ed6a16e6d3039976a7357068d47dda8abf",
+          "size_bytes": 10509
+        },
+        {
+          "path": "capacity-planning-demand-shape-and-forecast-method/SKILL.md",
+          "sha256": "8e3e46fff415ff1209e76c3553dff09a87430a9a2892f09bf625994995dd2abc",
+          "size_bytes": 8631
+        },
+        {
+          "path": "capacity-planning-expansion-trigger-threshold-sizing/SKILL.md",
+          "sha256": "07d9246224e928735d3796a87ab73e0be7e3cddda845c3fbde1fe75b90594a39",
+          "size_bytes": 10910
+        },
+        {
+          "path": "capacity-planning-headroom-band-and-degradation-risk/SKILL.md",
+          "sha256": "5856c5af752a1752cbeb404d44cc5ba18476fcd90057b717ee04672d5553f863",
+          "size_bytes": 10808
+        },
+        {
+          "path": "capacity-planning-safety-buffer-sizing-by-criticality/SKILL.md",
+          "sha256": "183fe9623b3035698f987710e3858623a0c05f2318c2fe581b514808cecc9a29",
+          "size_bytes": 10336
+        },
+        {
+          "path": "code-architecture/SKILL.md",
+          "sha256": "8349d008c5a680fc63b24882caee4c30b3779620173cdb05f4f813ecaae19164",
+          "size_bytes": 4966
+        },
+        {
+          "path": "code-architecture/references/methodology-lineage.md",
+          "sha256": "65d352e60926f265ce1fd30b364c51c7eca114682dd0f0356309ba9e85fe0895",
+          "size_bytes": 18444
+        },
+        {
+          "path": "code-architecture/references/rules.md",
+          "sha256": "1de08b77fd55893c48b105f2dc315a8fe0a3adcfad859f8561d3cfa836d8d937",
+          "size_bytes": 20292
+        },
+        {
+          "path": "compliance-scan/SKILL.md",
+          "sha256": "8b2a566d31e45e128ff0b44f001113b34b746930f711f804e195ad758f0027b1",
+          "size_bytes": 8158
+        },
+        {
+          "path": "compliance-scan/references/criteria.md",
+          "sha256": "1257ba2adfe2bb270256900efc64ff43c936e9ec500b51244cc73ef1b3a44283",
+          "size_bytes": 5856
+        },
+        {
+          "path": "conformance-review-finding-record/SKILL.md",
+          "sha256": "deb535e945bd4a1c95f989e90fadf6ce8aefb237cea8a7b606126ebff632f92b",
+          "size_bytes": 4369
+        },
+        {
+          "path": "conformance-review-finding-record/references/rationalizations.md",
+          "sha256": "0283e080c2e009f8a83568b3db737749d62bc6bf688ecf268f941b271da101f5",
+          "size_bytes": 1310
+        },
+        {
+          "path": "conformance-review-finding-record/references/rules.md",
+          "sha256": "6c780173e7a27459d6d97443dc1c962fe2bad2efc92ee88a5db02bf0feff4270",
+          "size_bytes": 8401
+        },
+        {
+          "path": "conformance-review-requirement-extraction/SKILL.md",
+          "sha256": "2912ab8876496128fdf367e67e7680243a362163e151e03f8404d7c3921303a7",
+          "size_bytes": 6185
+        },
+        {
+          "path": "conformance-review-requirement-extraction/references/rationalizations.md",
+          "sha256": "b34b6e745b3aeee0c02740a0d0b25d55533322780ada771494d974fe7ff199c4",
+          "size_bytes": 1432
+        },
+        {
+          "path": "conformance-review-sampling-derivation/SKILL.md",
+          "sha256": "31104d4f4845a529fe211e0fa1291f40b9d53f966cc5ae7cd05dc3862b0ac6d9",
+          "size_bytes": 5785
+        },
+        {
+          "path": "conformance-review-sampling-derivation/references/rationalizations.md",
+          "sha256": "7ea4fa2257c41e3a04b7ca52ea3acb05c1ca17365a38813f2fdda7e7a4e13721",
+          "size_bytes": 1474
+        },
+        {
+          "path": "conformance-review-severity-classification/SKILL.md",
+          "sha256": "c1abf2b7ba698eff72804668b3fb988567e50e7cb0fb82c793321f7614fa56e3",
+          "size_bytes": 5777
+        },
+        {
+          "path": "conformance-review-severity-classification/references/rationalizations.md",
+          "sha256": "552a7ff3bf4200e637fbb19a49ed8b2b9f6d7f55a38ce4b7c88d437418d419b6",
+          "size_bytes": 1461
+        },
+        {
+          "path": "conformance-review-traceability-and-evidence/SKILL.md",
+          "sha256": "44090d5a7960910c7a0f1d18b499f3638c985c6923df462b3300e3d1a9df9478",
+          "size_bytes": 5573
+        },
+        {
+          "path": "conformance-review-traceability-and-evidence/references/rationalizations.md",
+          "sha256": "2c7f4d249b214cf0debf650d54fd324561c46c63edecd2bf37c1d91189a2331a",
+          "size_bytes": 1308
+        },
+        {
+          "path": "conformance-review-verdict-assignment/SKILL.md",
+          "sha256": "5abc963764b70fc78c01b175c32cb0fdf211c5ca57379079b5b3e2b10c87e81f",
+          "size_bytes": 6695
+        },
+        {
+          "path": "conformance-review-verdict-assignment/references/rationalizations.md",
+          "sha256": "ff1014dc3a3bac3bbd3b41050f9e12167584d6faf394f4f8356432d83e50aacf",
+          "size_bytes": 1254
+        },
+        {
+          "path": "conformance-review-verification-method-selection/SKILL.md",
+          "sha256": "70846bc606e9e07fc1b29a532721cf57f7efae1be601d1ad228085844ae2adb2",
+          "size_bytes": 5523
+        },
+        {
+          "path": "conformance-review-verification-method-selection/references/rationalizations.md",
+          "sha256": "285add92bcc93a0edbdb66761c12b6c3f5236d82858b29adc33bcbbfbb3b87ab",
+          "size_bytes": 1343
+        },
+        {
+          "path": "content-design-operational-playbook/SKILL.md",
+          "sha256": "48b85925f382a9a5522311a8d74c1734e1c7bbf039be4d7f52707df84a88860d",
+          "size_bytes": 10443
+        },
+        {
+          "path": "content-design-operational-playbook/references/rules.md",
+          "sha256": "a5e2c18ba9f7bd653c6aec9d45b8fd1a4378b90d1bd0fcde8057ff4172c3d13e",
+          "size_bytes": 17315
+        },
+        {
+          "path": "content-strategy-content-audit-and-inventory/SKILL.md",
+          "sha256": "24311fc46dabe93736fadf29fc46e0b47ee4d3614e7ca05b20dbd432470c3598",
+          "size_bytes": 2882
+        },
+        {
+          "path": "content-strategy-content-governance-ownership/SKILL.md",
+          "sha256": "abbf5a16a9d6a37e4b6e342649eb0adaee84aa51fb3d08575b5d63424f4f401b",
+          "size_bytes": 3229
+        },
+        {
+          "path": "content-strategy-editorial-calendar-and-cadence/SKILL.md",
+          "sha256": "39496b9c6850de4961ffc4735fd13ec9e012d642d128cc6b7b131ea3d4244320",
+          "size_bytes": 3244
+        },
+        {
+          "path": "customer-support-escalation-path/SKILL.md",
+          "sha256": "9a7268d2528bce5a7b4ec61cac7ee86bd0ffe2559f67622d5019ff1a05ba63b0",
+          "size_bytes": 4148
+        },
+        {
+          "path": "customer-support-five-whys-recurring-scope/SKILL.md",
+          "sha256": "c6bd58a0029cb7723cf84eecba2120d04f81f4b89fe02f2dc97d3ca900cac47d",
+          "size_bytes": 4354
+        },
+        {
+          "path": "customer-support-kcs-article-authoring/SKILL.md",
+          "sha256": "b56b6e1df8b614bf9f4d5ee42204599edca982f45211bb58d769ba8ee0c04e60",
+          "size_bytes": 4279
+        },
+        {
+          "path": "customer-support-research-log/SKILL.md",
+          "sha256": "ae0ed9fd582ccce2d2de2788e8adf36d0f2c6d8dcaf1ed38dd48857d0da82470",
+          "size_bytes": 6002
+        },
+        {
+          "path": "customer-support-sla-tier-priority/SKILL.md",
+          "sha256": "bbe4f9232ac3c22cffca19b95a3d65410a6d0bb7eadb8d103c61593c1a24b6fc",
+          "size_bytes": 4427
+        },
+        {
+          "path": "customer-support-subtraction-comprehensibility/SKILL.md",
+          "sha256": "47efc60a9f87186afa26b556e03d644b238edd9d058c5b17fdcacd62b29bac47",
+          "size_bytes": 4905
+        },
+        {
+          "path": "data-engineering-data-quality/SKILL.md",
+          "sha256": "ebc889edcc2dc1c4d655864cb204e7095cc45ab8d7455ab33c237e16be020b8d",
+          "size_bytes": 9950
+        },
+        {
+          "path": "data-engineering-failure-handling/SKILL.md",
+          "sha256": "ab5a20fefecd56e4025283438476bffeda7368f08de407c1fd003c4614f20668",
+          "size_bytes": 9321
+        },
+        {
+          "path": "data-engineering-pipeline-design/SKILL.md",
+          "sha256": "f71c234026bc3831c6f6178f259a87aa99e326a5321219d1d192bf42e100202a",
+          "size_bytes": 6145
+        },
+        {
+          "path": "data-engineering-pipeline-design/references/rules.md",
+          "sha256": "9f4067d0f5dcd5f6735c2d5e634777781538cc2fe8d8277397616b87780f98da",
+          "size_bytes": 7747
+        },
+        {
+          "path": "data-modeling-datavault/SKILL.md",
+          "sha256": "045c2eb86cb3107c26df8cd80435743e2ede86e0ef5d62c644a978660e4ab9b4",
+          "size_bytes": 8870
+        },
+        {
+          "path": "data-modeling-inmon/SKILL.md",
+          "sha256": "340937bde938a8e581e6cbfacd1d6d2f0fddb04004fb4b615aeb814306754abb",
+          "size_bytes": 8609
+        },
+        {
+          "path": "data-modeling-kimball/SKILL.md",
+          "sha256": "f1bf2e91337f07fe576ca5ff624eda3f41ef06c9c6fb1803f5806a6e3749447e",
+          "size_bytes": 8425
+        },
+        {
+          "path": "data-modeling-structure/SKILL.md",
+          "sha256": "239d2346baa11f18606615ef31852e2bcd277afbe3a4553bfe5909e10794dd70",
+          "size_bytes": 9016
+        },
+        {
+          "path": "decision-brief/SKILL.md",
+          "sha256": "d3edf22e2fdd9724db48e0ad3275f894e5070034db729fed0a807f7572eb6651",
+          "size_bytes": 8568
+        },
+        {
+          "path": "decision-brief/references/evidence.md",
+          "sha256": "0086e2d7da40321151bcad7f97b0e9a5624fcf41b19af5b0ccc2788869d11d87",
+          "size_bytes": 2649
+        },
+        {
+          "path": "decision-records/SKILL.md",
+          "sha256": "e7babf829a96e13ce682e56cf3346b4b2eb2128dc41125ec182bf0963d4dc6ee",
+          "size_bytes": 8423
+        },
+        {
+          "path": "defect-verification-evidence-artifact-completeness/SKILL.md",
+          "sha256": "8a0f11617e17d6d79d409faed737e88e21c6c3b79c53bc2b47c7318e76009a34",
+          "size_bytes": 7813
+        },
+        {
+          "path": "defect-verification-evidence-artifact-completeness/references/rationalizations.md",
+          "sha256": "095ca4eb9f1d12128de3318551786e076e5b99002b5da64cd475eff20ff96b20",
+          "size_bytes": 1329
+        },
+        {
+          "path": "defect-verification-independence-from-upstream-verdicts/SKILL.md",
+          "sha256": "70e4ee7cae33af422d12ec3afaec3ff2691274e4b5cd760f6d5961a6a1c34067",
+          "size_bytes": 7680
+        },
+        {
+          "path": "defect-verification-independence-from-upstream-verdicts/references/rationalizations.md",
+          "sha256": "fdeb159dda64cb1f7c7724d19f5809863f7fa9a6bd32f983843ab75148140aa4",
+          "size_bytes": 1322
+        },
+        {
+          "path": "defect-verification-reproduction-evidence-quality/SKILL.md",
+          "sha256": "f863eb3360b3af6ee6ab10e4f181494436deb7092edb81d5cc8f0e70d5e5789e",
+          "size_bytes": 9276
+        },
+        {
+          "path": "defect-verification-reproduction-evidence-quality/references/rationalizations.md",
+          "sha256": "ac7d1debc06d9a52558f7f9f49d5e29abf743492c99017ea7487cdf762c11f9e",
+          "size_bytes": 1372
+        },
+        {
+          "path": "defect-verification-severity-band-assignment/SKILL.md",
+          "sha256": "27d2cce3cc06f9a084289a2c122fa022d8705d635c73123243dc9dfa4bf60167",
+          "size_bytes": 8061
+        },
+        {
+          "path": "defect-verification-severity-band-assignment/references/rationalizations.md",
+          "sha256": "7c8ba453272dbb37d41354290459c8f905d1a3c7c056e72d6ccaade8c9e48924",
+          "size_bytes": 1362
+        },
+        {
+          "path": "design-artifact-html-demo/SKILL.md",
+          "sha256": "73bd306ea210e0d493a631901dec85f935eecd4f3060fdc97362ac78df3cbb40",
+          "size_bytes": 8206
+        },
+        {
+          "path": "design-artifact-information-architecture/SKILL.md",
+          "sha256": "9d54ecc227fb55a8774a70db9edae11296062212669c45d2d145d6a827fae9b7",
+          "size_bytes": 6121
+        },
+        {
+          "path": "design-artifact-storyboard/SKILL.md",
+          "sha256": "48979d1ccf7bec6d10611fd123fdaf7688a5382ff285c0b027af01fbd0f9c18b",
+          "size_bytes": 8179
+        },
+        {
+          "path": "design-artifact-user-flow/SKILL.md",
+          "sha256": "7d972fedcb7aeb8d4f4317ce9e8eef786b2de0a15cb73416013471b0b1272f14",
+          "size_bytes": 6568
+        },
+        {
+          "path": "design-artifact-user-scenario/SKILL.md",
+          "sha256": "2bc936d14a3a2299ce0e40895ad2303041a620c8c5800088cabc6d7bdd394150",
+          "size_bytes": 7687
+        },
+        {
+          "path": "devrel-channel-convention/SKILL.md",
+          "sha256": "2690874c48f6119b6c445cfbf14b70e98ee9f16f0c0bd33c8a771a1e312ca5f4",
+          "size_bytes": 6758
+        },
+        {
+          "path": "devrel-content-comprehensibility/SKILL.md",
+          "sha256": "eca8000c4f9c850d1333f50a7650bc8ea46d4d6b73a92372bc4cdbf99675fbee",
+          "size_bytes": 7331
+        },
+        {
+          "path": "devrel-program-subtraction/SKILL.md",
+          "sha256": "9fd20134d2e33c5a09b2db3421f3226b8c74575ad96c13ce12e2197bcc2907cc",
+          "size_bytes": 6292
+        },
+        {
+          "path": "diagnose-first/SKILL.md",
+          "sha256": "006248135db0d68885431081d2a7c97f0a62589ff9db9d6f389e49af5cd6f246",
+          "size_bytes": 18014
+        },
+        {
+          "path": "diagnose-first/references/gate-criteria.md",
+          "sha256": "ba93b68612add6a96bf4218ebebb6557652816150cbf297cc7182cd8ceea3327",
+          "size_bytes": 13605
+        },
+        {
+          "path": "diagnose-first/references/methods.md",
+          "sha256": "5eff0208dec23a38ed5b5010e01c1a9acd3f7f23ae06ec12356338176ff1ddf5",
+          "size_bytes": 6387
+        },
+        {
+          "path": "experiment-trust/SKILL.md",
+          "sha256": "cc69c80ce5e787ef43a5189513288145353674642d5788b5a805f6f5bd77030f",
+          "size_bytes": 10418
+        },
+        {
+          "path": "experiment-trust/references/rules.md",
+          "sha256": "816da051ba3fd79c754a3cefa6659c0d97554ee4cd9f699de521cb284e748f2a",
+          "size_bytes": 2357
+        },
+        {
+          "path": "finance-unit-economics-cac-payback/SKILL.md",
+          "sha256": "529392afbb8e9c0846eef1df8a7501d4426e5b9d42da5d009c2b28134c881d06",
+          "size_bytes": 4435
+        },
+        {
+          "path": "finance-unit-economics-evidence-chain/SKILL.md",
+          "sha256": "cfbbe8f8066519b0c5ef9b41e339c1cdc8abc2814a4a7ecb9a2bc6eaf176c5b6",
+          "size_bytes": 5324
+        },
+        {
+          "path": "finance-unit-economics-ltv-cac-band/SKILL.md",
+          "sha256": "49ac41f0066248be8eaf01ed56940fcd6b4b531813e17be12fbc5cde6f2ac5ef",
+          "size_bytes": 5016
+        },
+        {
+          "path": "finance-unit-economics-ltv-churn-assumption/SKILL.md",
+          "sha256": "6acc24927d5f60195f5c54adfee7020d4f764ca4c9cb5856c3926ae66dd7540b",
+          "size_bytes": 4662
+        },
+        {
+          "path": "finance-unit-economics-proposal-shape/SKILL.md",
+          "sha256": "669dc7f6ecc559490ae8bce33f1ef8a3c357ca3a26a883b92544e0de73a72c45",
+          "size_bytes": 4872
+        },
+        {
+          "path": "finance-unit-economics-sensitivity-scenario/SKILL.md",
+          "sha256": "1c09e0e7aafb9fc77cff4af684155e752c80472f06fcbeec26357a9a4c3671c8",
+          "size_bytes": 4888
+        },
+        {
+          "path": "flow-metrics/SKILL.md",
+          "sha256": "62deb5c19486db897623884995b2f25e8c79f5c208d0d0a5b42db82041afbefd",
+          "size_bytes": 10331
+        },
+        {
+          "path": "fmea/SKILL.md",
+          "sha256": "25d5aecc09a0346bd6ee994222258ecdb9b21ef8fa64efa01c3229e7118461c6",
+          "size_bytes": 11864
+        },
+        {
+          "path": "game-character-animation-and-motion/SKILL.md",
+          "sha256": "fda21470455781d8638adb709689c64531ed34aa3aa5621d6268efd98eb8b4f2",
+          "size_bytes": 13051
+        },
+        {
+          "path": "game-character-rendering-composition/SKILL.md",
+          "sha256": "555119c5612107707840007613690a6b9067078616ba821e793d237a4f5eab9c",
+          "size_bytes": 8953
+        },
+        {
+          "path": "game-design-core-loop-and-progression/SKILL.md",
+          "sha256": "cab33989639e5ef012d0d8c5f2b28d02a4e2700c76c0feaf5814a582f4efc71b",
+          "size_bytes": 5135
+        },
+        {
+          "path": "game-design-core-loop-and-progression/references/rules.md",
+          "sha256": "e4d8139876d81456df174473dfe5e3419cdcfbe5d4383cdb70425a23b9bf0dcc",
+          "size_bytes": 8235
+        },
+        {
+          "path": "game-feel-juice-and-feedback/SKILL.md",
+          "sha256": "6dd86458152b4cb34caf3b8f218e90afe9cdfba479d750217bcbfacbf5ae8b7c",
+          "size_bytes": 10601
+        },
+        {
+          "path": "game-growth-system-design/SKILL.md",
+          "sha256": "05fa9e2838ce697f0d89492e328567b9a2d4979c087f4e6b1496a889a07425cb",
+          "size_bytes": 7533
+        },
+        {
+          "path": "game-hit-reaction-and-impact/SKILL.md",
+          "sha256": "e681446d2ba248f4e9cf6f0e7bd90633093976de514d41c46df9d2e45d9b6854",
+          "size_bytes": 7709
+        },
+        {
+          "path": "game-ui-board-and-lane-layout/SKILL.md",
+          "sha256": "a1edc44f826686319f4c69e2ce74e2fb3e5376916f731cbff2f63806e94791be",
+          "size_bytes": 5357
+        },
+        {
+          "path": "game-ui-board-and-lane-layout/references/rules.md",
+          "sha256": "599c5904e72568cb4e29e609f93e11841bd589292864ea070a542313f310dc6a",
+          "size_bytes": 8892
+        },
+        {
+          "path": "growth-analytics-experiment-trust/SKILL.md",
+          "sha256": "d94a1757f15571149e940e32b92918339b8f42a6d31dd0b9cc9d3f973f6c4f86",
+          "size_bytes": 3621
+        },
+        {
+          "path": "growth-analytics-funnel-stage-attribution/SKILL.md",
+          "sha256": "ee40b1009ea00ccfa6ac615fcb40603069319302bb3c459afa1195ca2c7ee44d",
+          "size_bytes": 2735
+        },
+        {
+          "path": "growth-analytics-metric-selection/SKILL.md",
+          "sha256": "5e008b7c2c5b0dd8d76cf46f207b95ee6241061b7e75e4634ee575c369b205e5",
+          "size_bytes": 2802
+        },
+        {
+          "path": "growth-analytics-reporting-reduction/SKILL.md",
+          "sha256": "6123d0710c8d87642cbfc6e6b7678dce0394868e219791b929e84413b736aab7",
+          "size_bytes": 2711
+        },
+        {
+          "path": "growth-analytics-segmentation/SKILL.md",
+          "sha256": "694541688320221d4a626d7345e6278c231117c72b7c88f918c448fa201623b9",
+          "size_bytes": 2858
+        },
+        {
+          "path": "html5-game-rendering-loop/SKILL.md",
+          "sha256": "ef98acd6220d8f6ddc84350aa2dd3ca82940561e15393b329223e2f80d26e4db",
+          "size_bytes": 5941
+        },
+        {
+          "path": "html5-game-rendering-loop/references/rules.md",
+          "sha256": "5b1e38ce5c8430e1fd7bcac838ebf91f80e65e163c43e1288b6e83eaffb58767",
+          "size_bytes": 8857
+        },
+        {
+          "path": "hypothesis-testing/SKILL.md",
+          "sha256": "0beda90c65bc90f0d86798022397b73be95150ae6b973c78aa05c4f48aabe73a",
+          "size_bytes": 8806
+        },
+        {
+          "path": "hypothesis-testing/references/evidence.md",
+          "sha256": "0c0079fd00d1c5b1ed1a37339935dcb67c21a6579804aaa4fc28716824109ede",
+          "size_bytes": 3123
+        },
+        {
+          "path": "implementation-audit/SKILL.md",
+          "sha256": "3df79e931ecdd39d99357e60909d72ad11024385151e7a789316aabe645eda10",
+          "size_bytes": 9358
+        },
+        {
+          "path": "implementation-audit/references/rationalizations.md",
+          "sha256": "7578037369f04dd84c07efabe54dddc644930e1d766d6468ade628ed09bd0e0e",
+          "size_bytes": 1321
+        },
+        {
+          "path": "implementation-audit/references/surface-patterns.md",
+          "sha256": "30820024c6e652890453ff9a1486c2bfade6e1b82617e0bd35aec61d94db589d",
+          "size_bytes": 7022
+        },
+        {
+          "path": "implementation-blueprint/SKILL.md",
+          "sha256": "4940a0c8ec6dab75acdb85e9c47af08958686071e3b63ca6e36a9b781c78d9ad",
+          "size_bytes": 3733
+        },
+        {
+          "path": "implementation-blueprint/data/antipatterns.csv",
+          "sha256": "9f4aecbb6f9bd4e343447ac59f6a6df9c2f90fb9642785b1a297c7359d2cba9a",
+          "size_bytes": 5631
+        },
+        {
+          "path": "implementation-blueprint/data/archetypes.csv",
+          "sha256": "be8046501212483aa8534ec7e800a0bc0d983260e03c6ec15939086bcc5cabac",
+          "size_bytes": 13004
+        },
+        {
+          "path": "implementation-blueprint/data/rules.csv",
+          "sha256": "9eb7ea594d9c752a125c8363f13db36ff2c66c6bdc6084145cf65bccda14c986",
+          "size_bytes": 4143
+        },
+        {
+          "path": "implementation-blueprint/references/rationalizations.md",
+          "sha256": "965628811bac27cbb0373a2670ad77c5925f3c18a9f54a87dce3ed65b75f106d",
+          "size_bytes": 1528
+        },
+        {
+          "path": "implementation-blueprint/scripts/prep.py",
+          "sha256": "a129ce0b2a7d8ea5c7cc3bc2b532ad9a6eeab85f6a169933bba7306a3aa17e02",
+          "size_bytes": 7234
+        },
+        {
+          "path": "implementation-complexity-coupling-management/SKILL.md",
+          "sha256": "e3bbd61e0419ec84129461314ba053ef0e92cef396455f17c8f4cee7a66be315",
+          "size_bytes": 8712
+        },
+        {
+          "path": "implementation-complexity-coupling-management/references/rationalizations.md",
+          "sha256": "91b94658bd2f5961803c246e65ae26d83b0d2e337b0afea12cbe219d3d5ea5d5",
+          "size_bytes": 1453
+        },
+        {
+          "path": "implementation-design-pattern-selection/SKILL.md",
+          "sha256": "49da15fa6c21ed2b721ebb5021839262d573d069c7da97384c2b4ba88b377a32",
+          "size_bytes": 6448
+        },
+        {
+          "path": "implementation-design-pattern-selection/references/rationalizations.md",
+          "sha256": "7e994e2a7721259b2e5349b7da555d923347957c073930bc8479f10da76ce709",
+          "size_bytes": 1575
+        },
+        {
+          "path": "implementation-performance-data-structure-choice/SKILL.md",
+          "sha256": "72de7fe6ad8ba186c93178f4f05081b9eae7fb6fd3fee3dd8aa38485eb372906",
+          "size_bytes": 6613
+        },
+        {
+          "path": "implementation-performance-data-structure-choice/references/rationalizations.md",
+          "sha256": "43a150246ce66563ac19c411eb9ad049aa2f6b8feff310b61163fcef0e4ff556",
+          "size_bytes": 1491
+        },
+        {
+          "path": "incident-response-action-item-quality/SKILL.md",
+          "sha256": "357df7a90b1dc5a2eadf561600918a180e3613ac2da38301fa908eb88b153cdc",
+          "size_bytes": 5230
+        },
+        {
+          "path": "incident-response-blameless-language-editing/SKILL.md",
+          "sha256": "5116a17374e13166a58c959033dd81dd7e2217be994022aba575b7ad7bbfeaa5",
+          "size_bytes": 5335
+        },
+        {
+          "path": "incident-response-rca-method-selection/SKILL.md",
+          "sha256": "20a6f261a8e79587543c2c2e6ee712f64f70a0076bcb80049175afd469766be0",
+          "size_bytes": 5893
+        },
+        {
+          "path": "incident-response-severity-classification-scoping/SKILL.md",
+          "sha256": "17624f97705de172c0bc6004e0165faf09f176658863a39ff6fb6f526b169188",
+          "size_bytes": 4565
+        },
+        {
+          "path": "incident-response-timeline-construction/SKILL.md",
+          "sha256": "dc1804b2234a165a1bba447dd5bbc092faaa5bede4f51c8592a45413b10272d9",
+          "size_bytes": 4614
+        },
+        {
+          "path": "incident-response-tool-landscape/SKILL.md",
+          "sha256": "19c999aac5f12c14f04e454c04e978f454ba60339104379de5ff4fef7b551039",
+          "size_bytes": 5394
+        },
+        {
+          "path": "interaction-design-form-control-and-layout/SKILL.md",
+          "sha256": "007704f734c47d969ba840dad46da75c8facfa1f3b494c4e8b9b704cdcc35b64",
+          "size_bytes": 4948
+        },
+        {
+          "path": "interaction-design-form-control-and-layout/references/rules.md",
+          "sha256": "31c5323421fe0d127a4369447255558063f9a2282da252392f15f62046470820",
+          "size_bytes": 7170
+        },
+        {
+          "path": "issue-retrospective-timeline-comprehensibility-and-subtraction-rules/SKILL.md",
+          "sha256": "ee2891443a4714ddac8e56b072e2de04ac33de06db25625a9eada6f8108a1b02",
+          "size_bytes": 7172
+        },
+        {
+          "path": "issue-retrospective-timeline-comprehensibility-and-subtraction-rules/references/rules.md",
+          "sha256": "5aa8202a745864313040f597380e941ff43612aae8aa1473c567aeb6d8c45c1a",
+          "size_bytes": 7874
+        },
+        {
+          "path": "knowledge-management-curation-pruning/SKILL.md",
+          "sha256": "e96c8da93021dac28eb1d972db22ae954ddcc45cdcf552892ee30aaa7726c7f4",
+          "size_bytes": 8193
+        },
+        {
+          "path": "knowledge-management-pattern-extraction/SKILL.md",
+          "sha256": "c235628d819e17db7d1434cba6c7c2b50658fc8397887d848d8d9c6e5ae06489",
+          "size_bytes": 8575
+        },
+        {
+          "path": "knowledge-management-structure-findability/SKILL.md",
+          "sha256": "7983f583e4080a4cf0e74e76b42c72697aaff7b6d55dc6e9e66a04c7059827b5",
+          "size_bytes": 8363
+        },
+        {
+          "path": "knowledge-management-supersession-lifecycle/SKILL.md",
+          "sha256": "58c0f749d42301d6ad79112d5c4f5433944808710486392770a43a11c42094b0",
+          "size_bytes": 8544
+        },
+        {
+          "path": "knowledge-management-taxonomy-tagging/SKILL.md",
+          "sha256": "5ce05c44d986610b8c85ab2d3512caeba2918e0c4578e3807c687dc2fc0cfe5b",
+          "size_bytes": 8283
+        },
+        {
+          "path": "knowledge-work-deck-structure-narrative-arc/SKILL.md",
+          "sha256": "671453837ba890aa61348adfc36181ec83e2c91866a205cc8368b6bb38345ca8",
+          "size_bytes": 5095
+        },
+        {
+          "path": "knowledge-work-deck-toolchain-selection/SKILL.md",
+          "sha256": "d9cd984f68f53e8188c8a5bdaf45442de2de8598708c8d8b117f0f1a8b6dfcd6",
+          "size_bytes": 4920
+        },
+        {
+          "path": "knowledge-work-slide-density-and-layout/SKILL.md",
+          "sha256": "a8919f01106e12839e5f9d7d843e5b122abaf59787785b499fab7419722bf1c4",
+          "size_bytes": 5423
+        },
+        {
+          "path": "kubernetes-workload-hpa-behavior/SKILL.md",
+          "sha256": "1d00e49c1fdb5295c0ff01134a320253ec0a11ea9e3a373bc5586c1ba8b3a30f",
+          "size_bytes": 4375
+        },
+        {
+          "path": "kubernetes-workload-pdb-sizing/SKILL.md",
+          "sha256": "f8335b3fc36b12dc1a9e8f2c88d7ff1395dd07d1afcfd0c13c5b28e43ec48f26",
+          "size_bytes": 4660
+        },
+        {
+          "path": "kubernetes-workload-probe-selection/SKILL.md",
+          "sha256": "1bbd0d42cda815c36fcafc6942bbcc629e0bdaa2c2c16ac5f6a86cbb5fea6d1d",
+          "size_bytes": 4883
+        },
+        {
+          "path": "kubernetes-workload-production-readiness-checklist/SKILL.md",
+          "sha256": "38827256e7c14f739e7837046a14f83d08f799abbc72b268bcfc6d121f356051",
+          "size_bytes": 4903
+        },
+        {
+          "path": "kubernetes-workload-requests-limits-decision/SKILL.md",
+          "sha256": "e78f700dcb1e0ef9c30c2da4dfc3da988856a0d0c5c6306d05cfcc27726bda3d",
+          "size_bytes": 4810
+        },
+        {
+          "path": "launch-readiness/SKILL.md",
+          "sha256": "1766833567886407a5bbf50713f16e3567c2a35cc613592aeb0bc67f2ef9fc89",
+          "size_bytes": 7509
+        },
+        {
+          "path": "launch-readiness/references/rules.md",
+          "sha256": "f373aa8c6989840608b771e1036f4ff02d42c38571f55c136fa2725bea700f40",
+          "size_bytes": 2446
+        },
+        {
+          "path": "legal-compliance-consent-ux/SKILL.md",
+          "sha256": "c4c812f55b04855d649e955c1aac889b49f1c0b45d201c85f2c128b4458890bc",
+          "size_bytes": 6719
+        },
+        {
+          "path": "legal-compliance-cross-border-transfer/SKILL.md",
+          "sha256": "cefc48acd4aa8883b3a3b8ddf036bc13124ecd9bced460406bca9ca3c52b1c61",
+          "size_bytes": 5482
+        },
+        {
+          "path": "legal-compliance-lawful-basis-selection/SKILL.md",
+          "sha256": "10bcd3aa5fffc087f059e1ae4f608fab1e787316879546ff9937f61414172283",
+          "size_bytes": 5338
+        },
+        {
+          "path": "legal-compliance-license-compatibility/SKILL.md",
+          "sha256": "019739bbba33311fd4936eff896064b8169e2106bd8f9e4981d8fa8b6faa2e7d",
+          "size_bytes": 6386
+        },
+        {
+          "path": "legal-compliance-research-log/SKILL.md",
+          "sha256": "1ff005278444cb1ad478254f8ccaf36b5629d949e67cabf733fddf9cca85a3ea",
+          "size_bytes": 3888
+        },
+        {
+          "path": "legal-compliance-research-log/references/rules.md",
+          "sha256": "dffadd7a528ccb22ea1925cd5c267c50791b58b84c642de4fe80034024c413dd",
+          "size_bytes": 6559
+        },
+        {
+          "path": "legal-compliance-retention-minimization/SKILL.md",
+          "sha256": "057e026badfb81359277de16f1f039cb425ff4cb17b962f4dfd8c5da33f73fea",
+          "size_bytes": 6649
+        },
+        {
+          "path": "legal-compliance-vendor-dpa/SKILL.md",
+          "sha256": "cf6859238d64397ff01fea0c03ab643e2a91595325d88db4556affd16df97c75",
+          "size_bytes": 7116
+        },
+        {
+          "path": "localization-locale-convention-formatting/SKILL.md",
+          "sha256": "c00b68b71725050c7f20284f9c195cbefc415a2e3fac928804e360df6b8a74ab",
+          "size_bytes": 7125
+        },
+        {
+          "path": "localization-pluralization-and-grammar/SKILL.md",
+          "sha256": "bcd21611e657c086a4d1b4383b1e1290fea61dbf8659fcf3b9b975fa10b61586",
+          "size_bytes": 6540
+        },
+        {
+          "path": "localization-rtl-and-script-support/SKILL.md",
+          "sha256": "ffc2254bb68bf3be4e330ef7f1c464205bcfbb19feb54e9903abcc1e927d1517",
+          "size_bytes": 5657
+        },
+        {
+          "path": "localization-string-externalization/SKILL.md",
+          "sha256": "8d01db6558395aced8d6eea879b24cff888c921420fb0badf4b79a497b5c8561",
+          "size_bytes": 8886
+        },
+        {
+          "path": "localization-text-expansion-and-layout/SKILL.md",
+          "sha256": "e7d8754019d66b065f41639e9c34e47bcf45e5f6703ecf09818bb31a22eb495d",
+          "size_bytes": 5839
+        },
+        {
+          "path": "market-analysis-competitor-mapping/SKILL.md",
+          "sha256": "97d3d5e7555622efd031903a433268939586f40ab20b6739621d4138cbcdd7d9",
+          "size_bytes": 7649
+        },
+        {
+          "path": "market-analysis-evidence-rigor/SKILL.md",
+          "sha256": "96397d39b2d99b180c8d5f2f7df21c77e0bcbf0328f17e8a50eb1825ad86be8b",
+          "size_bytes": 7723
+        },
+        {
+          "path": "market-analysis-five-forces/SKILL.md",
+          "sha256": "1fa0601b198337d038155e060195e0e3cab3608c831e7ed284c290c024e722da",
+          "size_bytes": 7615
+        },
+        {
+          "path": "market-analysis-jtbd-fit/SKILL.md",
+          "sha256": "f70c38d6dc7eef634e73e00742dcb76d898b05c192014d92c3cada7b75ed864e",
+          "size_bytes": 7798
+        },
+        {
+          "path": "market-analysis-mece-proposal/SKILL.md",
+          "sha256": "3a52804065ff87620a1fa1c0a65bb5bbc9d0dd27ec926884782019db98705ee5",
+          "size_bytes": 7564
+        },
+        {
+          "path": "market-recon/SKILL.md",
+          "sha256": "cefad1ae7af6f6d7deb0775e26c9580fd7d63bffc00e7fa92f8313b6516004f2",
+          "size_bytes": 14768
+        },
+        {
+          "path": "market-recon/references/gate-criteria.md",
+          "sha256": "77072f75fab4cf573c7e9b4783d7e17a296588a93bce8a290b8f21b8eb5d9383",
+          "size_bytes": 14795
+        },
+        {
+          "path": "market-recon/references/methods.md",
+          "sha256": "e4af4f64577af34231ad79b55686f01e6a5a832729836c9530626e02254a2d54",
+          "size_bytes": 9538
+        },
+        {
+          "path": "marketing-channel-selection/SKILL.md",
+          "sha256": "e800e93095a747d23231eaf68cef9c5df21ef83fbfa3edc92110046b25a170dd",
+          "size_bytes": 4639
+        },
+        {
+          "path": "marketing-message-persuasion/SKILL.md",
+          "sha256": "c18ebdbbabe02629c832685df0efe2dcd8cb7d19aac7d2a7dbf4ce0e8037fa8d",
+          "size_bytes": 5480
+        },
+        {
+          "path": "marketing-positioning-differentiation/SKILL.md",
+          "sha256": "e51e1bd94510ec71035a1fe421faccf1f54c82baa16a261446ee7e6436401067",
+          "size_bytes": 5102
+        },
+        {
+          "path": "marketing-scope-pruning/SKILL.md",
+          "sha256": "5039a82daf618b44e8e1c49f8b11b1baecf61cc4fb64296d93c97030514e8bae",
+          "size_bytes": 5332
+        },
+        {
+          "path": "marketing-segment-targeting/SKILL.md",
+          "sha256": "358f7dcbb57185abe237b9205e77b497363012b80d2d268980116ff896b8c849",
+          "size_bytes": 5114
+        },
+        {
+          "path": "merge-gates/SKILL.md",
+          "sha256": "a58038ac8c5dbe96278fa8cf2213a9b1c7caba567e57f6be9d83d6a51f2836aa",
+          "size_bytes": 9983
+        },
+        {
+          "path": "merge-gates/references/evidence.md",
+          "sha256": "db18b2fe58eae532682eaa5b11bc6a7a802a215ceea36806a916ac35c303ec95",
+          "size_bytes": 4527
+        },
+        {
+          "path": "ml-engineering-evaluation-discipline/SKILL.md",
+          "sha256": "efe5d6e86bfdf31228cbaf785a48f157700cbc1ce55a72e849e9bd0ef97681d6",
+          "size_bytes": 4771
+        },
+        {
+          "path": "ml-engineering-ml-test-score-scoring/SKILL.md",
+          "sha256": "03350d43de9c3b619470d0231c039eb0281f9a5e23ad7a47a7849a4d461fa8ae",
+          "size_bytes": 4889
+        },
+        {
+          "path": "ml-engineering-model-provenance-versioning/SKILL.md",
+          "sha256": "b20565f53c284004a3cfdd76559e76dd570d2164cb18cc3002aaddb9dacb917f",
+          "size_bytes": 4489
+        },
+        {
+          "path": "ml-engineering-rollout-promotion-rollback/SKILL.md",
+          "sha256": "db748cefa9533262355b21d21a6b58a9feb9f01f86ed36772c745c0b3a9529ba",
+          "size_bytes": 4527
+        },
+        {
+          "path": "ml-engineering-serving-pattern-selection/SKILL.md",
+          "sha256": "91950b93513c2fe2e049b232bac9a7515cca04482abd847f11a0c53f9e346210",
+          "size_bytes": 4550
+        },
+        {
+          "path": "ml-engineering-slo-definition-tradeoffs/SKILL.md",
+          "sha256": "7a3cad14c037ab223dc6f8933abe92a3f0b12980a1f306798e6082922970a324",
+          "size_bytes": 4204
+        },
+        {
+          "path": "model-routing/SKILL.md",
+          "sha256": "309ca8110c2b23fd52620817461e480fbd093125e6f12195486633d67437ec6d",
+          "size_bytes": 5239
+        },
+        {
+          "path": "model-routing/references/rules.md",
+          "sha256": "9c4a67301294a8e5b501226afdf4d3fd28192c682e8d964f93f0b2832838b69a",
+          "size_bytes": 11948
+        },
+        {
+          "path": "negotiation-batna-and-zopa-preparation/SKILL.md",
+          "sha256": "5812b600a86a44804eb6493f0654062ddb91335686edb8ce8a2d8adea33a2bcd",
+          "size_bytes": 5136
+        },
+        {
+          "path": "negotiation-interests-vs-positions-framing/SKILL.md",
+          "sha256": "71eb713234d4cae141e7e2067a305bae1f8809cb4f4eb1b9560b40185137f6fa",
+          "size_bytes": 4986
+        },
+        {
+          "path": "negotiation-vendor-evaluation-rfp-scoring/SKILL.md",
+          "sha256": "6bd6c12c500be59dc831b131257bc658d61095834f3d98545c14c7aa228e3c43",
+          "size_bytes": 5593
+        },
+        {
+          "path": "observability-cardinality-budget/SKILL.md",
+          "sha256": "4848384b5782e7ac728e245645e313956865f881ef70763d8fcdeac313e4d393",
+          "size_bytes": 4541
+        },
+        {
+          "path": "observability-explorability/SKILL.md",
+          "sha256": "eb5f8af1e747625db45b2bee458b4b44a674690efa7868352cf87fdabd55515a",
+          "size_bytes": 3877
+        },
+        {
+          "path": "observability-methodology-selection/SKILL.md",
+          "sha256": "b98ffd9a1ed2b892b6b55fd35cdb17127110d32cfd61dcbe7a0213ee65eefb0a",
+          "size_bytes": 3597
+        },
+        {
+          "path": "observability-phase-trace/SKILL.md",
+          "sha256": "d75b41e0c2bab031649b15cdf45cc3214f265728c7eb2a0f2779d4c95d8f3db3",
+          "size_bytes": 3829
+        },
+        {
+          "path": "observability-signal-golden/SKILL.md",
+          "sha256": "137ac89f6b3441e9901df81e1ccd61367c8c127f833181a1e4d791cff9ae473e",
+          "size_bytes": 4087
+        },
+        {
+          "path": "observability-signal-red/SKILL.md",
+          "sha256": "3d338b80be62fe1e33ceb85871181c4ddb115589f033b8f7439b51fc931471a0",
+          "size_bytes": 3986
+        },
+        {
+          "path": "observability-signal-use/SKILL.md",
+          "sha256": "64e85c06d5e1ddf8c0b02b83ab9ca0f32255130af22f711b324d6c21d024526b",
+          "size_bytes": 3983
+        },
+        {
+          "path": "org-design-hiring-rubric-structured-interview/SKILL.md",
+          "sha256": "e117f9df657eec2f7d6e703da59021924205d1d5c04c656fe49cb336a7c45575",
+          "size_bytes": 5059
+        },
+        {
+          "path": "org-design-role-competency-definition/SKILL.md",
+          "sha256": "8f1f667a5463c99dfc630a1547f9b0457ad67f2a248971d2a246187c5f83d89d",
+          "size_bytes": 5206
+        },
+        {
+          "path": "org-design-team-shape-selection/SKILL.md",
+          "sha256": "79c74cea3606dbd8b99b459a102d4cac2f70f6eaa6885fa3a569e51173c6332a",
+          "size_bytes": 5143
+        },
+        {
+          "path": "overengineering-audit/SKILL.md",
+          "sha256": "d3bf213bdbf4357c9c77b3973ff6f55f2ec5db2a21cbd493afd4bfc65d0faed0",
+          "size_bytes": 8346
+        },
+        {
+          "path": "parallel-decomposition/SKILL.md",
+          "sha256": "e3776fd26e3b0007911cfbc5fc348e22cbd379221f9932db0049a505cca15918",
+          "size_bytes": 10182
+        },
+        {
+          "path": "parallel-decomposition/references/evidence.md",
+          "sha256": "f3f79f39c4ef84dc7bb69d579f7cf15f71718be9faf6820160f7d11368c7bdaf",
+          "size_bytes": 3725
+        },
+        {
+          "path": "parallel-decomposition/references/rules.md",
+          "sha256": "57733b0a9bbc931d1709c96845b2886f710076c120d1e133458ebfa7ec27092a",
+          "size_bytes": 1969
+        },
+        {
+          "path": "partnerships-bd-deal-structure-selection/SKILL.md",
+          "sha256": "acfb9cc3fc696532519476f59531d328b3f3549ad9401afe8be493fe0a9fe06c",
+          "size_bytes": 7662
+        },
+        {
+          "path": "partnerships-bd-exclusivity-and-scope-terms/SKILL.md",
+          "sha256": "40f7b53c82c19df29977a6f19824b5a933df3fad994602a59b7e0a8e7cff98a3",
+          "size_bytes": 6975
+        },
+        {
+          "path": "partnerships-bd-governance-cadence-and-kpi/SKILL.md",
+          "sha256": "259e6d890715f856aa33089f1722f13c5925ecf707442bf874a1a6d217de49b4",
+          "size_bytes": 7199
+        },
+        {
+          "path": "partnerships-bd-negotiation-positioning/SKILL.md",
+          "sha256": "df82dbd0b34ae46a24a077c09c3c28c8bff276621d34a637f4b4a53500e752c6",
+          "size_bytes": 7456
+        },
+        {
+          "path": "partnerships-bd-term-sheet-comprehensibility-and-convention/SKILL.md",
+          "sha256": "85a8633b36555e1ccb3b9d6741a371bb73bbaf3d5cc3ef48e6edee30c0ccc891",
+          "size_bytes": 7372
+        },
+        {
+          "path": "performance-engineering-operational-playbook/SKILL.md",
+          "sha256": "1872aaaa6b5543d374e77a5b214a80fa3374c55221662f61f3611d53b0e70542",
+          "size_bytes": 5263
+        },
+        {
+          "path": "performance-engineering-operational-playbook/references/rules.md",
+          "sha256": "0c1de048dbe9c633c4e8a087e572bb1291892dfe401fdb0912171434e81fe10a",
+          "size_bytes": 6537
+        },
+        {
+          "path": "pr-communications-message-planning-and-evaluation-rules/SKILL.md",
+          "sha256": "8ecc3fe2063927b21f0acf749116fe2eb9726bd5c055bc4b541868d2780f752d",
+          "size_bytes": 8028
+        },
+        {
+          "path": "pr-communications-message-planning-and-evaluation-rules/references/rules.md",
+          "sha256": "362bda209ec19021cf74f3444f0aec570bbaaf0f8bb16054a8b631ac81bedd1a",
+          "size_bytes": 8659
+        },
+        {
+          "path": "premature-scaling/SKILL.md",
+          "sha256": "1118312af58adc36b06245769b48998fd540cf471a53914671c87c6a1a2350fe",
+          "size_bytes": 7976
+        },
+        {
+          "path": "premortem/SKILL.md",
+          "sha256": "6d8f020567caf8e9e26b2e20cdcc1f123b85604f89363610bb23b6d7da9d3b25",
+          "size_bytes": 8119
+        },
+        {
+          "path": "premortem/references/evidence.md",
+          "sha256": "8bd27bae1eac92e993053e54f8d5bf6e887209316a26f87141ab9b464482461f",
+          "size_bytes": 2280
+        },
+        {
+          "path": "pricing-design-rigor/SKILL.md",
+          "sha256": "9930617e638d8cad7f667a9e994d4e3860d3837087f7d4c989f15dab7b9a4480",
+          "size_bytes": 6750
+        },
+        {
+          "path": "pricing-method-family/SKILL.md",
+          "sha256": "87f50e6b1109b5c02ce2aca730a20b22380403d6a3b5a9ebbd25e75377867281",
+          "size_bytes": 6310
+        },
+        {
+          "path": "pricing-research/SKILL.md",
+          "sha256": "66e2fcb197f378521e64532f668eabbbdc4ecd832d4e7cf4893ab8fd37967924",
+          "size_bytes": 8218
+        },
+        {
+          "path": "pricing-research/references/rules.md",
+          "sha256": "857140e4fe4a741749525175a5dc207e470bd36870f147b6c173d88daed26703",
+          "size_bytes": 12172
+        },
+        {
+          "path": "pricing-scope-gate/SKILL.md",
+          "sha256": "c21461d81d2e1750ad54b901193071963d755e66c465819e756b5f8de5d93d9d",
+          "size_bytes": 5300
+        },
+        {
+          "path": "pricing-tier-structure/SKILL.md",
+          "sha256": "079d14090cdb708ec88dbb24a9e5d9f7ec2aed85af55bd2b2c477e3e9a1cc5dd",
+          "size_bytes": 5586
+        },
+        {
+          "path": "pricing-verdict-report/SKILL.md",
+          "sha256": "49dca97ebd718867847e189798198e3f5a37a15a98abf3c7b34a375be4dfc7c4",
+          "size_bytes": 6016
+        },
+        {
+          "path": "prior-art-scan/SKILL.md",
+          "sha256": "f4b2b5734cdcb2fbb9fe315686256e1d907ea49e9604d7dfc1daddbd9d541c7d",
+          "size_bytes": 9043
+        },
+        {
+          "path": "prior-art-scan/references/criteria.md",
+          "sha256": "49681f12fe8cc67f3cc573388ef08441cde5fc0ab62fdc85cff0ad8365ef15b6",
+          "size_bytes": 5232
+        },
+        {
+          "path": "product-discovery-assumption-mapping/SKILL.md",
+          "sha256": "538eb95cbebd90e700c9abd04147c0f457b6536870a1301b9fc49baf0d06271f",
+          "size_bytes": 6843
+        },
+        {
+          "path": "product-discovery-guardrail-metric-status/SKILL.md",
+          "sha256": "847699d802760f37802d34331f5428de0812dee7c5b7079e106d8c8a8f73ba23",
+          "size_bytes": 7946
+        },
+        {
+          "path": "product-discovery-guardrail-metrics/SKILL.md",
+          "sha256": "a8b26f37b0f0a283830cafa000d58e75c06113cbefdc99f81cc4f3d903224d99",
+          "size_bytes": 5480
+        },
+        {
+          "path": "product-discovery-hypothesis-preregistration/SKILL.md",
+          "sha256": "a917a97f528c2f63ec18413d85f9f33602ec1e4c081ab805219a51894e635109",
+          "size_bytes": 8458
+        },
+        {
+          "path": "product-discovery-hypothesis-testing/SKILL.md",
+          "sha256": "da156ca550593c69b76585b8ef60131bc79fc0035616a62b58a652fd32cd34eb",
+          "size_bytes": 6990
+        },
+        {
+          "path": "product-discovery-hypothesis-testing/references/rules.md",
+          "sha256": "848dc5d7dbbcfa3e96e8a154a8641c9d549f669facc5c693b0936469ffa8e80a",
+          "size_bytes": 5233
+        },
+        {
+          "path": "product-discovery-jtbd-problem-framing/SKILL.md",
+          "sha256": "f422c79bf3d39f02b6ea81c40dbf9103acb602f0e973ee47888154fbf63809bd",
+          "size_bytes": 7669
+        },
+        {
+          "path": "product-discovery-one-pager/SKILL.md",
+          "sha256": "d5a4f743bb0ebb7a93a6988d8737ac79dc389481c7309c54593a831eb7fc4da0",
+          "size_bytes": 6591
+        },
+        {
+          "path": "product-discovery-opportunity-solution-tree-branching/SKILL.md",
+          "sha256": "d0bb64461682fc387eee985b2a002f89d47b65f567caaf350d017cc191f1328e",
+          "size_bytes": 8417
+        },
+        {
+          "path": "product-discovery-opportunity-solution-tree/SKILL.md",
+          "sha256": "01f1eee7139d45c00ff2868e5ed990151aa672857d6fe75030532b6df91d8346",
+          "size_bytes": 4414
+        },
+        {
+          "path": "product-discovery-rice-ice-prioritization/SKILL.md",
+          "sha256": "081c653052a4a9f43645fad9f5fe6b754b587c9321e7ac5e871ba1f9bf57d481",
+          "size_bytes": 7429
+        },
+        {
+          "path": "prose-modes/SKILL.md",
+          "sha256": "8c449bfa34360c5ece5970d7d6f6583aa3efbecbef77cd48401e59593484128c",
+          "size_bytes": 16233
+        },
+        {
+          "path": "refactoring-legacy-characterization-test-scope/SKILL.md",
+          "sha256": "124dd8d140e7a854e2d416b24881437d33d17e51d6cc2aed31108f41c7910dd4",
+          "size_bytes": 6324
+        },
+        {
+          "path": "refactoring-legacy-refactoring-step-decomposition/SKILL.md",
+          "sha256": "fae087a810f4323ea00af3cec4f853d3384b57aae9cfa8ccb19659caf7308614",
+          "size_bytes": 6047
+        },
+        {
+          "path": "refactoring-legacy-seam-selection/SKILL.md",
+          "sha256": "d712945027f54d2ac0d6f3232bc440f3183c951567302944a7000d4fb1b8a566",
+          "size_bytes": 6269
+        },
+        {
+          "path": "refactoring-legacy-strangler-fig-migration/SKILL.md",
+          "sha256": "a2412b6a9f1a7478fffba84ee34af7f278e1b453c14b14ebbb2482ac58eea815",
+          "size_bytes": 6669
+        },
+        {
+          "path": "refactoring-legacy-verification-cadence/SKILL.md",
+          "sha256": "900b60d1fc1a1a289a54cbbb7c05ccac8350debd977460275d3f30572a1d7952",
+          "size_bytes": 5797
+        },
+        {
+          "path": "reference-forecast/SKILL.md",
+          "sha256": "ef43ba9504fb465a2c5de90872054f525d27c1b11aedbce50d600413c72ea313",
+          "size_bytes": 7098
+        },
+        {
+          "path": "reference-forecast/references/evidence.md",
+          "sha256": "040ca5a5270459e1f888d6ab2e51c0d72f5bb2239b98764c628df32f5245146e",
+          "size_bytes": 5575
+        },
+        {
+          "path": "release-engineering-branching-release-strategy/SKILL.md",
+          "sha256": "b7fc14ebee1bd897e7292c06ae6148fb20f8ba0e0fb1331c48d7b2f9ba355100",
+          "size_bytes": 8193
+        },
+        {
+          "path": "release-engineering-changelog-entry-categorization/SKILL.md",
+          "sha256": "e557f27563b0e383233a212e34af8ace60a0755c4ee5ef5e9e1a1397a3647cb4",
+          "size_bytes": 7238
+        },
+        {
+          "path": "release-engineering-deployment-rollout-strategy/SKILL.md",
+          "sha256": "872d82b57289d048b91c339050258462b44cd38bbbf625e07b112c98d7e11856",
+          "size_bytes": 5345
+        },
+        {
+          "path": "release-engineering-deployment-rollout-strategy/references/rules.md",
+          "sha256": "0b01f1abb527d2652ff37abc26ef693d9c1bb0c092c613cda9ecee90d06b957c",
+          "size_bytes": 6707
+        },
+        {
+          "path": "release-engineering-error-budget-policy/SKILL.md",
+          "sha256": "ff87d121c8a1c516b32f6b1d9310148b02b22e39c9600907261029375716ae9c",
+          "size_bytes": 4407
+        },
+        {
+          "path": "release-engineering-postmortem/SKILL.md",
+          "sha256": "962b50b97021c23f7f37084d296e6ae1cbb76691ef1cc1c11061c0e757388302",
+          "size_bytes": 6358
+        },
+        {
+          "path": "release-engineering-readiness-checklist/SKILL.md",
+          "sha256": "17e13af1b6165e5083c2f7fb1daa77fe874854db5c00ebd13b152a304175d892",
+          "size_bytes": 4689
+        },
+        {
+          "path": "release-engineering-readiness-checklist/references/rules.md",
+          "sha256": "34824e909c6f3a89bb92d2e4b46a317582dde73bcf145ab929c74990ced63f17",
+          "size_bytes": 5319
+        },
+        {
+          "path": "release-engineering-release-cadence-and-toil/SKILL.md",
+          "sha256": "46adfc3b7eaccc32c4c1cf5381286c843d5708d6abf3d5dad550ccca844f9c6f",
+          "size_bytes": 7386
+        },
+        {
+          "path": "release-engineering-rollback-and-recovery/SKILL.md",
+          "sha256": "52d27d61d56408482e8c3938c04c07b73f641f413a74d768e44167e8d89fc8d2",
+          "size_bytes": 8434
+        },
+        {
+          "path": "release-engineering-rollout-plan/SKILL.md",
+          "sha256": "9f8a62e730ea99fc93d132faef816ac483035f843f0f6a9b54d747d561ee5a05",
+          "size_bytes": 5013
+        },
+        {
+          "path": "release-engineering-semver-bump-selection/SKILL.md",
+          "sha256": "19c85a8a9995acda55019f2bcdab20389ea0fb7c11eeb024addf1a22804cd33a",
+          "size_bytes": 7244
+        },
+        {
+          "path": "requirements-engineering-rules/SKILL.md",
+          "sha256": "8e9871a5c2d2b9e96e6f4562f42a96d7e84488d8df0e42891915a40d083bbf71",
+          "size_bytes": 9819
+        },
+        {
+          "path": "requirements-engineering-rules/references/rules.md",
+          "sha256": "71c3b35d76fbb5b39f71d8ff589664d9d20d09c1cf245c8d0852b9faffec9191",
+          "size_bytes": 13124
+        },
+        {
+          "path": "requirements-quality/SKILL.md",
+          "sha256": "424767d7cad2d9fe290c63a9ba314a154085e299810b8c99f07b442ab365a201",
+          "size_bytes": 13663
+        },
+        {
+          "path": "research-evidence-discipline/SKILL.md",
+          "sha256": "ebb915d50147b40940a8b4583dd2623190b2e22901026e21d54e6934f87383d6",
+          "size_bytes": 7324
+        },
+        {
+          "path": "risk-management-aggregation-consolidation/SKILL.md",
+          "sha256": "a8a3b4afc47b3d5fa60cde0a17acc57e781c4bd43cea7521508febf02210cbb7",
+          "size_bytes": 4422
+        },
+        {
+          "path": "risk-management-appetite-tolerance-threshold/SKILL.md",
+          "sha256": "a154e83cc30f2dbbd3769adfb0bb2e7947c751be3003f5087c27193b68620d15",
+          "size_bytes": 4739
+        },
+        {
+          "path": "risk-management-likelihood-impact-scale/SKILL.md",
+          "sha256": "2233c89d3603e9b4989ce22472fc102a17bca4c47f858f319c12464921d9919b",
+          "size_bytes": 4309
+        },
+        {
+          "path": "risk-management-monitoring-review-cadence/SKILL.md",
+          "sha256": "a9eab3169dc1b37034de5f314857caea5b79938c597246e0657ce020bfde25eb",
+          "size_bytes": 3986
+        },
+        {
+          "path": "risk-management-response-strategy-selection/SKILL.md",
+          "sha256": "130f2c151c2e92459f3a4d734b0f8035c94353a840a2eac75d82799a0a15a674",
+          "size_bytes": 4686
+        },
+        {
+          "path": "sales-objection-handling/SKILL.md",
+          "sha256": "c86b5309269eab73c34d61d1dfce8e6b58d60de0e6029f0552fc5bf421351cb2",
+          "size_bytes": 5053
+        },
+        {
+          "path": "sales-pitch-scoping-and-messaging-handoff/SKILL.md",
+          "sha256": "f340e5a2283ed2ffca71fe71b7c44e4b05cc388957aebe1a48ee165612ea69ae",
+          "size_bytes": 5191
+        },
+        {
+          "path": "sales-qualification-and-discovery/SKILL.md",
+          "sha256": "15567c0d08b69c2536ea488429f4cd1b0f5ca0a834bda891a1829ab594c9c6e6",
+          "size_bytes": 4625
+        },
+        {
+          "path": "secure-coding-authorization-access-control/SKILL.md",
+          "sha256": "2b19297a154ad45a64e493d55635a342ec13e01d8dad3b1400cd1b0b0b3fb39f",
+          "size_bytes": 6377
+        },
+        {
+          "path": "secure-coding-cryptography-secrets-management/SKILL.md",
+          "sha256": "e4969902508243bd79c35eeb28da6f4aed61794d250ebe3af7894aea4b8b4c0a",
+          "size_bytes": 7328
+        },
+        {
+          "path": "secure-coding-dependency-supply-chain-security/SKILL.md",
+          "sha256": "77cf7e89acc9109faaad8898782b626b16640b8893ca3cc151bd7af01772148b",
+          "size_bytes": 7944
+        },
+        {
+          "path": "secure-coding-input-validation-injection-defense/SKILL.md",
+          "sha256": "6d5b0e42936837ace9001b56f0570e34d1c54412ba32d51f32dac982c06b1d45",
+          "size_bytes": 7960
+        },
+        {
+          "path": "secure-coding-session-authentication/SKILL.md",
+          "sha256": "87b5c09a0b5af576f800d84457f1bdc6d682bcb4e0eb92967f07f7343cccd383",
+          "size_bytes": 6564
+        },
+        {
+          "path": "security-threat-model-threat-modeling-decision-rules/SKILL.md",
+          "sha256": "5ebdad0c027374ae63771cfe473cfa71166318f439d89a7ef649684058c128cc",
+          "size_bytes": 10545
+        },
+        {
+          "path": "security-threat-model-threat-modeling-decision-rules/references/rules.md",
+          "sha256": "6c1482e0ca5ccbe8bfa7dbb4dcca720ce77b49955e5adb195877521bd87816a0",
+          "size_bytes": 19410
+        },
+        {
+          "path": "silent-failure-audit/SKILL.md",
+          "sha256": "8420d440cf94cff02d95942aadd7096ab3e608a1e4a53b5d40490fd8e6c7ea7f",
+          "size_bytes": 7895
+        },
+        {
+          "path": "silent-failure-audit/references/silent-failure-catalog.md",
+          "sha256": "a593fa9c7ac94af3eece6a96b0e45118cd3383112f43b48056194dff9da1b5d0",
+          "size_bytes": 5532
+        },
+        {
+          "path": "stride/SKILL.md",
+          "sha256": "5706f5aa22abce78b96386b5ab13f434424dad7034b5c9ce65bc1644a45b77bf",
+          "size_bytes": 16917
+        },
+        {
+          "path": "team-safety-measure/SKILL.md",
+          "sha256": "3fddc633029e52ed4319aafadeaa81ecb9e196ac7e0cd8dcecfd8fada3f604fc",
+          "size_bytes": 9788
+        },
+        {
+          "path": "tech-feasibility/SKILL.md",
+          "sha256": "805d9ee4481d0d7363ebb3c5b2ae22ee55032df4bf08e511e260b538aef43b64",
+          "size_bytes": 8466
+        },
+        {
+          "path": "tech-feasibility/references/criteria.md",
+          "sha256": "156edc680803a14150b8c56e35327e841479769b623f1289afb16a90d06afcbe",
+          "size_bytes": 5482
+        },
+        {
+          "path": "technical-feasibility-build-vs-buy-dependency-health/SKILL.md",
+          "sha256": "58168e516a2b252fd0b8fc8138f9c5de9a37502e6779a609d358774ef6778fd1",
+          "size_bytes": 6130
+        },
+        {
+          "path": "technical-feasibility-build-vs-buy-dependency-health/references/rules.md",
+          "sha256": "bd942a21588ed60d81b6614bd3e902b8ddddce7ddb36795f2dba7fdf6f53cdc8",
+          "size_bytes": 7093
+        },
+        {
+          "path": "technical-feasibility-build-vs-buy/SKILL.md",
+          "sha256": "9f764c0778a1650974aa5ad5ca6bfdf6c024b4a5d6a65add1408f3ccf9f1d46c",
+          "size_bytes": 4878
+        },
+        {
+          "path": "technical-feasibility-license-and-regulatory-risk/SKILL.md",
+          "sha256": "d39e367613ca5daba5910278c68ffc42b6f06eed082289b1fe2e97c724fb506c",
+          "size_bytes": 6278
+        },
+        {
+          "path": "technical-feasibility-license-and-regulatory-risk/references/rules.md",
+          "sha256": "f3611daf8652762746e5e5384bed70a9b0d332ceddc3248c188b3504f231be6e",
+          "size_bytes": 8578
+        },
+        {
+          "path": "technical-feasibility-license-scan/SKILL.md",
+          "sha256": "2222e6611801f16af5a8aa29e88f8856bcccbe4ed23eb660b7e622f116c5186f",
+          "size_bytes": 4315
+        },
+        {
+          "path": "technical-feasibility-reversibility-and-spike-scoping/SKILL.md",
+          "sha256": "56d19457b97ac8a0dcc82a8cba31ef3ddbcbdb2e34ff2a47f470b6f6dcd75914",
+          "size_bytes": 6660
+        },
+        {
+          "path": "technical-feasibility-reversibility-and-spike-scoping/references/rules.md",
+          "sha256": "bcb828dece1b0296ca08182897735a592cdb6dcbb1717d82a5918d2d71055adf",
+          "size_bytes": 7644
+        },
+        {
+          "path": "technical-feasibility-reversibility-tag/SKILL.md",
+          "sha256": "21980dd2e7b64ca05a38216ec489c4a3881021ccf30faa498fd1f4f13563e998",
+          "size_bytes": 4626
+        },
+        {
+          "path": "technical-feasibility-spike-report/SKILL.md",
+          "sha256": "334565f4436c658296ce940728c2fca56b5bfbce4ed4e4a85020b39544358be0",
+          "size_bytes": 7958
+        },
+        {
+          "path": "technical-feasibility-stride-table/SKILL.md",
+          "sha256": "a91b5a26a6b70b0f39e620c1f63b76bcc1c1db46a8428af514c07b6b9155726b",
+          "size_bytes": 4498
+        },
+        {
+          "path": "technical-feasibility-threat-model-disposition/SKILL.md",
+          "sha256": "737fb41afa771238b1d829e54e23f370f04a284599c8b5a7f6317f9f6a46d732",
+          "size_bytes": 6400
+        },
+        {
+          "path": "technical-feasibility-threat-model-disposition/references/rules.md",
+          "sha256": "ff14069c56b027a88a8dbd0e030e709c7de38dbda18c6bfa47a51cf5bb00a55e",
+          "size_bytes": 7595
+        },
+        {
+          "path": "technical-feasibility-verdict-and-timebox-selection/SKILL.md",
+          "sha256": "8770fb882fe9a634b3fff39277147b24e868093d7034e23d3869d00004a127b4",
+          "size_bytes": 6343
+        },
+        {
+          "path": "technical-feasibility-verdict-and-timebox-selection/references/rules.md",
+          "sha256": "8f27fb34c3556842bb13a564268b82b8e1c6d87d32c84e414ae67f79c5bb2cfb",
+          "size_bytes": 7661
+        },
+        {
+          "path": "technical-writing-doc-type-selection/SKILL.md",
+          "sha256": "a33d754956064c95cc4b2e5c58ae6c4d2f7a72adac76bb6c43eee704a2b36522",
+          "size_bytes": 5906
+        },
+        {
+          "path": "technical-writing-doc-type-selection/references/rules.md",
+          "sha256": "daf32645719631140373e1c59909394673ea1cce824af5f1e2028c6f50cdec6b",
+          "size_bytes": 5892
+        },
+        {
+          "path": "technical-writing-minimalism-scoping/SKILL.md",
+          "sha256": "88838943751fc7d7ca604bb45b0291f73f2d227a3a774cb8a452deaf45d68ce7",
+          "size_bytes": 8576
+        },
+        {
+          "path": "technical-writing-persuasion-trust/SKILL.md",
+          "sha256": "b6578de1bc578b85383c30df5b36fc8668515f57ccfce02c6c79e033c01f8e84",
+          "size_bytes": 8094
+        },
+        {
+          "path": "technical-writing-structure-comprehension/SKILL.md",
+          "sha256": "ce74349c04e281d004197db27f14319406b44bef531e1f9d17d45e3ccc210a9a",
+          "size_bytes": 7322
+        },
+        {
+          "path": "technical-writing-style-guide-compliance/SKILL.md",
+          "sha256": "2cb7324d427e49d9f20b9848e70829c1f5ebb133c218280260d96b6b67e846ad",
+          "size_bytes": 7685
+        },
+        {
+          "path": "technical-writing-tool-landscape/SKILL.md",
+          "sha256": "510bb643f058b34c0d3439b3b5f44c8c674b612f94d9cdb2df7a8dd9c6b7234e",
+          "size_bytes": 4754
+        },
+        {
+          "path": "test-authoring-isolation-and-fixture-strategy/SKILL.md",
+          "sha256": "3484225c3d2b6a563f5ebf9cb5f253e716fa86c0150281baa97022e737aa55be",
+          "size_bytes": 8392
+        },
+        {
+          "path": "test-authoring-isolation-and-fixture-strategy/references/rules.md",
+          "sha256": "80b3b2d684e405cc0baf3ee95d1b9c374e4ed824c57332074caef3929b8bcfbe",
+          "size_bytes": 9594
+        },
+        {
+          "path": "test-depth-audit/SKILL.md",
+          "sha256": "40475c9fcdd33b286179114a895adc478433d9b8a5bfc2e27137dce861bcda16",
+          "size_bytes": 8515
+        },
+        {
+          "path": "test-derivation/SKILL.md",
+          "sha256": "65528163640eef54ea2107b83904385e5d345349e98cbf9d4a307c9f291f6353",
+          "size_bytes": 14474
+        },
+        {
+          "path": "test-derivation/references/rules.md",
+          "sha256": "d90e8f2356c34c0da6dad5830db12bfbcce251ba4a97b30b385d01558f8ca801",
+          "size_bytes": 7634
+        },
+        {
+          "path": "upstream-defect-report-comprehensibility/SKILL.md",
+          "sha256": "efef6e92a8ddff63f0fd6b0ef5a023d9570a0b4e14e49f523b63aca3f84752d3",
+          "size_bytes": 5790
+        },
+        {
+          "path": "upstream-defect-report-convention/SKILL.md",
+          "sha256": "2928961c8e495d0191b005bd51d6227862aed7e817743afbdffba57e99aa3eea",
+          "size_bytes": 7392
+        },
+        {
+          "path": "upstream-defect-report-subtraction/SKILL.md",
+          "sha256": "498478f13dae08e426c6d018c652db0a36ddb0db5073e3ebf72ec497fcff7f1b",
+          "size_bytes": 6837
+        },
+        {
+          "path": "usability-eval/SKILL.md",
+          "sha256": "fc5e9c7ad62f2e5bd51e49580a65ac07e25ee3aad713654ff73a6c8cd386d56e",
+          "size_bytes": 9508
+        },
+        {
+          "path": "usability-eval/references/criteria.md",
+          "sha256": "a0a51e12196595757d77d5d83c6bbeec1154a00924f70099a6859ad9a40e020e",
+          "size_bytes": 5421
+        },
+        {
+          "path": "user-discovery-evidence-strength-tagging/SKILL.md",
+          "sha256": "d1ba5c85d61e6bbb0c248b6112c322f89b1de3225831f0cf10b379bc9ee086e6",
+          "size_bytes": 7093
+        },
+        {
+          "path": "user-discovery-follow-up-ladder-depth/SKILL.md",
+          "sha256": "108021f70f471b0d81f6eba69beb602f8b300935d04cf07d18710272ff3876d6",
+          "size_bytes": 7127
+        },
+        {
+          "path": "user-discovery-question-design-past-behavior/SKILL.md",
+          "sha256": "00a936052e5f19e8743abfb4eca82cd8bccc75c5e0ee086c828b2b50c1bdf6a8",
+          "size_bytes": 7301
+        },
+        {
+          "path": "user-discovery-saturation-stopping-rule/SKILL.md",
+          "sha256": "84f04f03162f2dfc7f327fa6a83098f3d8bb66a276e5bd93d40d9e2fe0a25154",
+          "size_bytes": 6981
+        },
+        {
+          "path": "user-discovery-switch-timeline-causal-forces/SKILL.md",
+          "sha256": "209e2af325480f2f35367c631c789e59a799fb439915089055f687381164c369",
+          "size_bytes": 6578
+        },
+        {
+          "path": "user-discovery-verdict-prevalence-reporting/SKILL.md",
+          "sha256": "03d40d1cbeaa95472e7443af8fc7dbd1e15dad552ecaa504e40f96425578a69a",
+          "size_bytes": 6900
+        },
+        {
+          "path": "user-discovery/SKILL.md",
+          "sha256": "dc56a51340eeaeed03394472ff7e50731de09c8084f21ec464a85a8e0995c664",
+          "size_bytes": 9719
+        },
+        {
+          "path": "user-discovery/references/criteria.md",
+          "sha256": "dfcf56ad48b44774452a6a5c16e32900afc52ca16008c754364503d3216a1d5a",
+          "size_bytes": 5021
+        },
+        {
+          "path": "ux-engineering-color-visibility/SKILL.md",
+          "sha256": "18b8077830595b5c3bddbaa870b64d11b9af10c42ff3b475d00fd36689bf29f3",
+          "size_bytes": 4189
+        },
+        {
+          "path": "ux-engineering-color-visibility/references/rules.md",
+          "sha256": "3346661aef654d27fcf4eda11cf57691e53533702ad01a71936bab53d5a71251",
+          "size_bytes": 8019
+        },
+        {
+          "path": "ux-engineering-control-selection/SKILL.md",
+          "sha256": "800ce0b8feac032e01f7d59b56933c248038716fdff2d064cce688c3b12fd15d",
+          "size_bytes": 4514
+        },
+        {
+          "path": "ux-engineering-control-selection/references/rules.md",
+          "sha256": "c6dd972fb799afd78bb66e639dec83bdda5429bb2e1d5aaa343bdf9a620797b3",
+          "size_bytes": 8787
+        },
+        {
+          "path": "ux-engineering-layout-grouping/SKILL.md",
+          "sha256": "51922b3529d9de508a2561425a05f8bf115b46f8286f9ff6584342211112359c",
+          "size_bytes": 4198
+        },
+        {
+          "path": "ux-engineering-layout-grouping/references/rules.md",
+          "sha256": "1fd03181354d1e237ac80d879970875455b2e56f4972c0ed73960f3380291cbf",
+          "size_bytes": 8028
+        },
+        {
+          "path": "ux-engineering-navigation-depth/SKILL.md",
+          "sha256": "32cfbf58787f1ac680a15ac1a6dbe64d46ead760a96d48ceaa72d7b3cd9df3ac",
+          "size_bytes": 8349
+        },
+        {
+          "path": "ux-engineering-research-log/SKILL.md",
+          "sha256": "77da4dfb0b27c8cab646545e6f7ec27ac648a31a443f8f36199dccf1888076dc",
+          "size_bytes": 3260
+        },
+        {
+          "path": "ux-engineering-research-log/references/rules.md",
+          "sha256": "acc8e334abbb371f09d94d48ae4feafcc9fcb329d2c223155c146bc51f3c2639",
+          "size_bytes": 6693
+        },
+        {
+          "path": "ux-engineering-service-design-blueprint-construction/SKILL.md",
+          "sha256": "ef993f6de44ec88a402c39af0fd3acbc34e6169e1810888131964ea7a05c4ca2",
+          "size_bytes": 7680
+        },
+        {
+          "path": "ux-engineering-service-design-frontstage-backstage-separation/SKILL.md",
+          "sha256": "060c3023ab67c91a3509be77482c134c37399a9fe49ca530ebcc48735e94260a",
+          "size_bytes": 6052
+        },
+        {
+          "path": "ux-engineering-service-design-touchpoint-channel-mapping/SKILL.md",
+          "sha256": "a56bc4c314084c76c98a1d847657b8f49b588873e3f6dd62c9aa5786566cb40b",
+          "size_bytes": 5417
+        },
+        {
+          "path": "ux-engineering-surface-contrast/SKILL.md",
+          "sha256": "24a6a11995ea9d99815002895f4bfbe73f363a425df981f99f78905cd0d3d1b2",
+          "size_bytes": 7658
+        },
+        {
+          "path": "verify-finding-record/SKILL.md",
+          "sha256": "dab1f2a815967cf56d1f4bada6b1bbbdc649859598536721e3f77c0aaf56d0e9",
+          "size_bytes": 4503
+        },
+        {
+          "path": "verify-finding-record/references/rules.md",
+          "sha256": "0a86fa7314466bdb93305c55d3e4f79a756075d49ca3624d4cb4e79bf3091657",
+          "size_bytes": 7180
+        },
+        {
+          "path": "verify-severity-classification/SKILL.md",
+          "sha256": "dd135e14117dde43d268c2180f231de52af9487ed8d81bc0cdf1aa0195d639bc",
+          "size_bytes": 6176
+        },
+        {
+          "path": "work-in-english/SKILL.md",
+          "sha256": "f2d1ae8c75c39badcfed996a60e3c017a9b24a5c5e78b7249a51b104aaa1679a",
+          "size_bytes": 4632
+        }
+      ],
+      "skills_root": "/home/jwjung/skill-registry/skills"
+    },
+    {
+      "absence_check": {
+        "file_count": 0,
+        "files_found": [],
+        "method": "recursive Path.rglob('*') filtered to regular files (resolve_skill_files())",
+        "skills_root": "/tmp/consumer-path-off-skills-absent-014fcf7434dc49cf8d19e407a81b567c",
+        "skills_root_exists": false
+      },
+      "arm": "off",
+      "credentials": {
+        "dest": "/tmp/consumer-path-off-home-kapyzlpg/.claude/.credentials.json",
+        "method": "copied .claude/.credentials.json only -- no plugin registration, no marketplace config, no ~/.claude.json",
+        "provisioned": true,
+        "source": "/home/jwjung/.claude/.credentials.json"
+      },
+      "home": "/tmp/consumer-path-off-home-kapyzlpg",
+      "skill_files": [],
+      "skills_root": "/tmp/consumer-path-off-skills-absent-014fcf7434dc49cf8d19e407a81b567c"
+    }
+  ],
+  "dispatch": {
+    "argv_identical_across_arms": true,
+    "argv_template": [
+      "python3",
+      "spawn.py",
+      "--skills",
+      "product-discovery-hypothesis-preregistration",
+      "<task text, held constant across both arms>",
+      "--issue",
+      "<issue-created-per-arm>",
+      "--model",
+      "sonnet",
+      "-C",
+      "<sandbox-repo>"
+    ],
+    "env_keys_that_differ_by_arm": [
+      "HOME",
+      "MUSTER_SKILL_REPO"
+    ],
+    "note": "spawn.py with an orchestrator -- not a bare `claude -p` (the #3041/#3053 shortcut this issue's floor condition invalidated for this requirement)"
+  },
+  "generated_at": "2026-09-03T02:30:10.402833+00:00",
+  "issue": 3183,
+  "operator": "jwjung",
+  "skills_root_env_var": "MUSTER_SKILL_REPO"
+}

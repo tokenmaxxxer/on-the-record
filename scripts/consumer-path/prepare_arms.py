@@ -151,7 +151,49 @@ def dispatch_command(skill_name: str, model: str, issue_placeholder: str,
     ]
 
 
-def make_on_arm(home: Path, skills_root: Path) -> dict:
+CREDENTIALS_RELATIVE_PATH = Path(".claude") / ".credentials.json"
+
+
+def provision_credentials(home: Path, source: Path) -> dict:
+    """Copies ONLY `<source>/.claude/.credentials.json` into this arm's
+    isolated HOME -- nothing else (no plugin registration, no marketplace
+    config, no `~/.claude.json`). Issue #3245 independent verification
+    (docs/issue-3245/reports/independent-verification-2.md) proved this
+    exact narrow copy is both necessary and sufficient: a fresh, empty
+    HOME makes `claude -p` fail immediately on "Not logged in", which
+    `spawn.py doctor()` misreports as hooks not firing headless; adding
+    only this one file flips that same probe back to passing, with the
+    skills-root absence/isolation guarantees untouched (this file lives
+    under HOME, `resolve_skill_files()`/`demonstrate_absence()` scan the
+    separate skills-root path, so provisioning it cannot leak into or
+    contaminate the manipulated variable). Fails closed: no credentials
+    source means no arm can authenticate, so preparation must not report
+    success for one it did not actually achieve."""
+    src = source / CREDENTIALS_RELATIVE_PATH
+    if not src.is_file():
+        raise ArmPreparationError(
+            f"credentials source {src} does not exist -- cannot "
+            "provision this arm's isolated HOME with working "
+            "authentication (see docs/issue-3245/reports/"
+            "independent-verification-2.md for why an unauthenticated "
+            "HOME makes every arm dispatch fail before hooks or the "
+            "skills manipulation ever come into play)")
+    dest_dir = home / CREDENTIALS_RELATIVE_PATH.parent
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    dest = home / CREDENTIALS_RELATIVE_PATH
+    dest.write_bytes(src.read_bytes())
+    dest.chmod(0o600)
+    return {
+        "provisioned": True,
+        "source": str(src),
+        "dest": str(dest),
+        "method": "copied .claude/.credentials.json only -- no plugin "
+                  "registration, no marketplace config, no ~/.claude.json",
+    }
+
+
+def make_on_arm(home: Path, skills_root: Path,
+                 credentials_source: Path | None = None) -> dict:
     skill_files = resolve_skill_files(skills_root)
     if not skill_files:
         raise ArmPreparationError(
@@ -159,16 +201,19 @@ def make_on_arm(home: Path, skills_root: Path) -> dict:
             "files -- refusing to prepare an 'on' arm that is "
             "indistinguishable from 'off'; pass --skills-root-on at a "
             "populated skill-repository checkout")
+    credentials = (provision_credentials(home, credentials_source)
+                   if credentials_source is not None else None)
     return {
         "arm": ARM_ON,
         "home": str(home),
         "skills_root": str(skills_root),
         "skill_files": skill_files,
         "absence_check": None,
+        "credentials": credentials,
     }
 
 
-def make_off_arm(home: Path) -> dict:
+def make_off_arm(home: Path, credentials_source: Path | None = None) -> dict:
     # Never created -- a path that does not exist is a stronger
     # demonstration of "not reachable" than an empty directory a stub
     # could later be written into, and there is nothing here to clean up.
@@ -180,30 +225,42 @@ def make_off_arm(home: Path) -> dict:
             f"'off' arm's skills root {off_skills_root} already exists "
             "or is non-empty -- refusing to report an absence that was "
             "not actually demonstrated")
+    credentials = (provision_credentials(home, credentials_source)
+                   if credentials_source is not None else None)
     return {
         "arm": ARM_OFF,
         "home": str(home),
         "skills_root": str(off_skills_root),
         "skill_files": [],
         "absence_check": absence_check,
+        "credentials": credentials,
     }
 
 
 def build_manifest(skills_root_on: Path, skill_name: str, model: str,
-                    operator: str) -> tuple[dict, list[Path]]:
+                    operator: str,
+                    credentials_source: Path | None = None) -> tuple[dict, list[Path]]:
     """Returns (manifest, created_dirs) -- `created_dirs` is exactly the
     temporary HOMEs this call created, for the caller to clean up on
     success. Fails closed (raises `ArmPreparationError`) rather than
     emitting a manifest that does not honestly reflect what was
     prepared -- and on that failure path, cleans up whichever HOMEs it
     had already created before raising, so a rejected preparation never
-    leaks a temp HOME either."""
+    leaks a temp HOME either.
+
+    `credentials_source` (a HOME-shaped directory containing
+    `.claude/.credentials.json`) is optional and defaults to None so
+    existing callers (tests, `--dry-run` inspection) keep working
+    unauthenticated; `run_pair.py`'s real-dispatch path always passes it
+    (see issue-3245 independent-verification-2 -- without it, every arm's
+    `claude -p` call fails on "Not logged in" before hooks or the skills
+    manipulation ever run)."""
     on_home = Path(tempfile.mkdtemp(prefix="consumer-path-on-home-"))
     off_home = Path(tempfile.mkdtemp(prefix="consumer-path-off-home-"))
     created_dirs = [on_home, off_home]
     try:
-        on_arm = make_on_arm(on_home, skills_root_on)
-        off_arm = make_off_arm(off_home)
+        on_arm = make_on_arm(on_home, skills_root_on, credentials_source)
+        off_arm = make_off_arm(off_home, credentials_source)
         if on_arm["home"] == off_arm["home"]:
             raise ArmPreparationError(
                 "on/off arms received the same HOME -- isolation "

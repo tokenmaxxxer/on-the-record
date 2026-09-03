@@ -284,10 +284,17 @@ def run_pair(pair_id: str, repo: str, skill_name: str, model: str,
     task_text = task_file.read_text(encoding="utf-8").strip()
 
     out_dir.mkdir(parents=True, exist_ok=True)
+    # issue-3245 independent-verification-2: an isolated HOME with no
+    # credentials makes every arm's `claude -p` call fail on "Not logged
+    # in" before hooks or the skills manipulation ever run. Provision from
+    # this orchestrating session's own real HOME -- the same credentials
+    # this session itself dispatches with, nothing more.
+    credentials_source = Path(os.environ.get("HOME", ""))
     try:
         manifest, created_dirs = prepare_arms.build_manifest(
             Path(os.environ.get("MUSTER_SKILL_REGISTRY_ROOT", "")),
-            skill_name, model, os.environ.get("USER", "unknown"))
+            skill_name, model, os.environ.get("USER", "unknown"),
+            credentials_source=credentials_source)
     except prepare_arms.ArmPreparationError as exc:
         # Silent-failure-audit: without this, an unpopulated/misconfigured
         # skills root would crash this launcher with a bare traceback
