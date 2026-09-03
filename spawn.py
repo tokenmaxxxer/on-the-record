@@ -2314,6 +2314,12 @@ def main() -> int:
                          "자문 단계까지 더한다(스폰 내부 경로와 같은 함수, 같은 "
                          "타임아웃/fail-open)")
     ap.add_argument("--merge", help="judge <role-or-skill> --merge <sha>: 판단할 머지의 커밋 sha")
+    ap.add_argument("--task-file",
+                    help="이슈 #3230: cross-family-deliver 전용 -- 과제 텍스트를 "
+                         "담은 임시 파일 경로. `_launch_cross_family_delivery()` "
+                         "가 이 서브커맨드를 detached 로 띄울 때만 쓴다(파이프 "
+                         "버퍼 블로킹을 피하려고 stdin 대신 파일로 넘긴다) -- "
+                         "읽은 뒤 이 서브커맨드가 직접 지운다")
     ap.add_argument("--unattended", action="store_true",
                     help="사람이 없는 실행. mint 는 안 되고, 휴먼 게이트는 선다")
     ap.add_argument("--limit", type=int, default=12,
@@ -2682,6 +2688,28 @@ def main() -> int:
         if a.post:
             closure_sweep.post_sweep_comments(root, violations)
         return 1
+    if a.role == "cross-family-deliver":
+        # 이슈 #3230: `_launch_cross_family_delivery()` 가 detached
+        # 서브프로세스로만 부르는 내부 서브커맨드 -- 사람이 직접 칠 일은
+        # 없지만(문서화되지 않은 CLI 표면 그대로 나머지 role 들과 같은
+        # 모양), 별도 진입점이라 인자 부족은 다른 role 과 같은 방식으로
+        # 거절한다.
+        if a.issue is None or not a.skill:
+            sys.exit("사용법: spawn.py cross-family-deliver --issue <n> --skill "
+                      "<skill> [--skills <csv>] --task-file <path> -C <워커 cwd>")
+        task_text = ""
+        if a.task_file:
+            try:
+                task_text = Path(a.task_file).read_text(encoding="utf-8")
+            except OSError as exc:
+                print(f"[{a.skill}] cross-family-deliver: task-file 읽기 실패 -- "
+                      f"correction 못 보냄: {exc}", file=sys.stderr)
+                return 1
+            finally:
+                with contextlib.suppress(OSError):
+                    os.unlink(a.task_file)
+        _deliver_cross_family_amendment(a.cwd, a.issue, a.skill, a.skills, task_text)
+        return 0
     if a.role == "consult":
         if not a.task or not a.consult_question:
             sys.exit('사용법: spawn.py consult <역할> "<질문>" [--issue <n>]')
@@ -3857,6 +3885,115 @@ def _push_succeeded(push_result: dict | None) -> bool:
         "issue-closed-stale-branch")
 
 
+def _deliver_cross_family_amendment(cwd: str, issue: int, skill: str,
+                                     skills_csv: str | None, task_text: str) -> None:
+    """Issue #3230: resolve the cross-family skill_judge match OFF the
+    dispatch critical path and, if it found anything, hand the correction
+    to the already-shipped amendment channel (issue #3129) so a worker
+    session's own next `PostToolUse` tool call picks it up. Called from
+    the `cross-family-deliver` role inside the detached subprocess
+    `_launch_cross_family_delivery()` starts -- never on `_spawn_one()`'s
+    own hot path, so this function's own runtime (median ~20s, the exact
+    `_skill_judge_consult()` subprocess call issue #3186 located) no
+    longer blocks the worker session's start.
+
+    Round 2/PR#3240/PR#3250's own analysis named three reasons this
+    channel is unproven, not just unbuilt: delivery is reactive (fires
+    only on the worker's own next tool call), advisory (text the model
+    must act on voluntarily), and has no rollback for work already done.
+    This function does not solve any of the three -- it only wires the
+    missing call site those rounds named. The directive text
+    `_spawn_one()` appends for the `skill_judge_outcome == "pending"`
+    case is what asks the worker to actively wait for this rather than
+    hope a later tool call happens to catch it.
+
+    Never raises: every branch here runs inside a detached subprocess
+    nobody joins, so an uncaught exception would otherwise vanish with
+    zero trace anywhere (same reasoning `amendment_channel.py`'s own
+    `_run_hook_full()` docstring gives for not adding a blanket catch
+    there either -- except here there is no fail-open-wrapper.sh
+    stderr-grep safety net, so this function must be its own."""
+    try:
+        picked_dirs, outcome = _cross_family_skill_matches_with_consult(
+            task_text, skill, _skill_repo_root(), issue, cwd,
+            k=_COMPOSED_SKILLS_TOPK, home=Path.home(),
+            target_repo_root=Path(cwd), skills_csv=skills_csv)
+    except Exception as ex:
+        print(f"[{skill}] cross-family-deliver: 자문 실패, correction 못 보냄: {ex}",
+              file=sys.stderr)
+        return
+    if not picked_dirs:
+        print(f"[{skill}] cross-family-deliver: 매치 없음(outcome={outcome}) -- "
+              f"correction 없음(초기 fail-open 마운트가 이미 맞았다)",
+              file=sys.stderr)
+        return
+    hooks_dir = str((ROOT / "on-the-record" / "hooks").resolve())
+    if hooks_dir not in sys.path:
+        sys.path.insert(0, hooks_dir)
+    import amendment_channel as _amendment_channel
+    repo = _amendment_channel.repo_slug_for_cwd(cwd)
+    if not repo:
+        print(f"[{skill}] cross-family-deliver: repo slug 못 구함({cwd}) -- "
+              f"correction 못 보냄", file=sys.stderr)
+        return
+    names = ", ".join(d.name for d in picked_dirs)
+    note = (f"skill_judge 판정이 디스패치 뒤에 끝났다(이슈 #3230, outcome={outcome}) "
+            f"-- 이번 과제와 매치된 스킬: {names}. add-only 로 취급하라: 이미 "
+            f"마운트된 목록을 대체하지 않고, applicable 이면 Skill 도구로 추가 "
+            f"로드하라.")
+    version = _amendment_channel.write_amendment(
+        _amendment_channel.default_state_dir(), repo, str(issue), note=note)
+    if version is None:
+        print(f"[{skill}] cross-family-deliver: write_amendment 실패(마커 쓰기 "
+              f"오류) -- correction 유실: {names}", file=sys.stderr)
+    else:
+        print(f"[{skill}] cross-family-deliver: correction 전달 완료 (v{version}): "
+              f"{names}", file=sys.stderr)
+
+
+def _launch_cross_family_delivery(cwd: str, issue: int, skill: str,
+                                   skills_csv: str | None, task_text: str) -> None:
+    """Fire-and-forget: hand `_deliver_cross_family_amendment()`'s work to a
+    genuinely detached OS process (`start_new_session=True`, same pattern
+    the watcher subprocess below already uses) -- not a thread. A
+    ThreadPoolExecutor future here would register on `concurrent.futures`'
+    own atexit join (blocking this process's own exit on the ~20s judge
+    call); a plain daemon thread would dodge that but then get killed
+    before the judge call finishes if this process exits first (exactly
+    why `auto_sweep`/`returned_pr_gate` above accept "may not finish" for
+    best-effort cleanup -- losing this delivery is not best-effort, it is
+    the entire point of building it). A detached subprocess survives this
+    process's own exit either way. Never blocks and never raises: task
+    text goes through a temp file (not a pipe) so a large issue body can
+    never make this call block on a full pipe buffer waiting for a reader
+    that has not started yet."""
+    fd, task_path = tempfile.mkstemp(prefix="cross-family-task-", suffix=".txt")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(task_text)
+    except OSError as exc:
+        print(f"[{skill}] cross-family-deliver 준비 실패 -- correction 유실: {exc}",
+              file=sys.stderr)
+        with contextlib.suppress(OSError):
+            os.unlink(task_path)
+        return
+    log_path = Path(str(cwd) + ".cross-family-deliver.log")
+    cmd = [sys.executable, str(Path(__file__).resolve()), "-C", str(Path(cwd).resolve()),
+           "cross-family-deliver", "--issue", str(issue), "--skill", skill,
+           "--task-file", task_path]
+    if skills_csv:
+        cmd += ["--skills", skills_csv]
+    try:
+        with log_path.open("a", encoding="utf-8") as lf:
+            subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=lf,
+                              stderr=subprocess.STDOUT, start_new_session=True)
+    except OSError as exc:
+        print(f"[{skill}] cross-family-deliver 기동 실패 -- correction 유실: {exc}",
+              file=sys.stderr)
+        with contextlib.suppress(OSError):
+            os.unlink(task_path)
+
+
 def _spawn_one(cwd: str, skill: str, task: str, unattended: bool,
                issue: int | None = None, bounded: bool = False,
                stall_timeout_min: float = 5.0, no_wait: bool = False,
@@ -3994,24 +4131,23 @@ def _spawn_one(cwd: str, skill: str, task: str, unattended: bool,
         # fail-closed, 이슈 #1955 요구사항 그대로).
         skill_registry_root = _skill_repo_root()
         skill_source = resolve_static_policy_source(skill_registry_root)
-    # 이슈 #2061: skill_judge 자문(BM25 프리필터 + haiku 판단)을 워크스페이스
-    # 클론/브랜치 체크아웃(~12s)과 겹치도록 그 전에 먼저 던진다 — 아래
-    # "cross_family" 단계에서 join 만 한다. 자문은 읽기 전용(저장소 파일을
-    # 건드리지 않는다, `_skill_judge_consult()` 의 override 문구)이라
-    # 워크스페이스가 아직 없어도(원본 cwd 로) 안전하게 먼저 돌 수 있다.
-    # 이슈 #2507: 이 자문이 이제 role 축 없는 스폰의 "유일한" 과제-맞춤
-    # 스킬 소스다(예전엔 고정 표 위에 얹는 add-only 층이었다) — top-K 를
-    # 2에서 `_COMPOSED_SKILLS_TOPK` 로 올려, role 이 예전에 주던 만큼의
-    # 스킬 개수를 (표 대신 매치로) 계속 받게 한다.
-    _cross_family_executor: concurrent.futures.ThreadPoolExecutor | None = None
-    _cross_family_future = None
-    if issue is not None:
-        _cross_family_executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
-        _cross_family_future = _cross_family_executor.submit(
-            _cross_family_skill_matches_with_consult,
-            _cross_family_task_text, skill, _skill_repo_root(), issue, cwd,
-            k=_COMPOSED_SKILLS_TOPK,
-            home=Path.home(), target_repo_root=Path(cwd), skills_csv=skills)
+    # 이슈 #3230 (R007): 예전에는 여기서 skill_judge 자문(BM25 프리필터 +
+    # haiku 판단)을 워크스페이스 클론/브랜치 체크아웃과 겹치도록 미리
+    # 던지고, 아래 "cross_family" 단계에서 그 결과를 join 해 기다렸다 —
+    # 그 join 이 median 20.7s(n=31, 이슈 #3230 실측)를 세션 시작 전
+    # 블로킹 경로에 그대로 남겼다(자문 자체는 읽기 전용이라 워크스페이스
+    # 없이도 먼저 돌 수 있었을 뿐, "먼저 던진다"가 "안 기다린다"를
+    # 뜻하진 않았다 — join 은 여전히 join 이었다). 이제 이 자문 자체를
+    # 아예 안 던진다: issue-scoped 스폰은 항상 POLICY 스킬만으로
+    # fail-open 마운트하고(아래 join 자리, "pending"), 실제 매치는 Popen
+    # 뒤 `_launch_cross_family_delivery()` 가 띄우는 완전히 분리된
+    # detached 서브프로세스(스레드/executor 아님 — 이 프로세스가 먼저
+    # 죽어도 살아남아야 한다, 그 함수 독스트링)가 판정해 amendment
+    # 채널(이슈 #3129)로 늦게 전달한다. round 2/PR#3240/PR#3250 이 이미
+    # 답한 "가능한가"(가능하다, 기존 채널이 있다)와 "안전한가"(그 채널의
+    # reactive/advisory/no-rollback 세 성질은 이 재배선으로도 안 사라진다
+    # — 아래 "cross-family-pending" 지시문 블록이 그 중 reactive 를
+    # 완화하려는 시도다) 를 그대로 인용한다.
     if issue is None:
         # Issue #2293 (scope addition, consumer incident 2026-08-25): an
         # adhoc (no --issue) spawn used to run directly in the caller's
@@ -4380,26 +4516,19 @@ def _spawn_one(cwd: str, skill: str, task: str, unattended: bool,
             # 요구).
             # 이슈 #2001/#2040/#2507: 이번 과제 텍스트에 매치되는 top-K
             # 스킬을 얹는다 — 매치가 없으면 cross_family_dirs 는 빈 목록.
-            # 이슈 #2040: BM25 프리필터 + skill_judge 자문 판단(스폰당
-            # 최대 자문 1회) — 소요 시간은 "cross_family" 단계로 측정해
-            # 부트스트랩 타이밍 요약에 실린다(Acceptance: per-spawn latency).
+            # 이슈 #3230 (R007): 예전엔 여기가 위에서 미리 던진 자문의 join
+            # 지점이었다(median 20.7s, n=31 — 위 `_cross_family_task_text`
+            # 근처 주석). 이제 이 단계는 아무 것도 안 기다린다 — issue-scoped
+            # 스폰은 항상 fail-open("pending")으로 마운트하고, 실제 매치는
+            # Popen 뒤 detached 서브프로세스가 늦게 판정해 amendment 채널로
+            # 보낸다(`_launch_cross_family_delivery()`). "cross_family"
+            # `_timed()` 라벨은 그대로 남긴다(측정 회귀 방지 — 이제 거의
+            # 0에 수렴해야 한다는 것 자체가 이 라운드의 before/after 증거).
             with _timed("cross_family"):
-                # 이슈 #2061: 위에서 워크스페이스/브랜치 셋업보다 먼저 던져둔
-                # 자문을 여기서 join 만 한다 — 이 단계의 측정치는 이제 겹친
-                # 대기 시간이 아니라 순수 join 대기(자문이 셋업보다 오래
-                # 걸린 나머지)만 반영한다.
-                if _cross_family_future is not None:
-                    cross_family_dirs, skill_judge_outcome = _cross_family_future.result()
-                else:
-                    # 이슈 #2679: --issue 없는 스폰은 자문 자체를 안 던진다
-                    # (위 `if issue is not None:`) — 이 줄이 없으면 성공
-                    # 로그도 실패 로그도 안 남아 "자문이 성공했는지 아예
-                    # 안 불렸는지" 를 로그만으로 구분할 수 없다.
-                    cross_family_dirs, skill_judge_outcome = [], "not-run"
-                    print(f"[{skill}] skill_judge 자문 안 함 — --issue 없는 스폰이라 "
-                          f"자문 자체를 안 던졌다 (not-run)", file=sys.stderr)
-                if _cross_family_executor is not None:
-                    _cross_family_executor.shutdown(wait=False)
+                cross_family_dirs, skill_judge_outcome = [], "pending"
+                print(f"[{skill}] skill_judge 자문: 디스패치 전엔 안 부른다 "
+                      f"(이슈 #3230, pending) — Popen 뒤 detached 서브프로세스가 "
+                      f"판정해 amendment 로 늦게 전달한다", file=sys.stderr)
             # 이슈 #2507: 고정 표(family) + 자문 추가(cross-family)라는
             # 두 층 구분이 없어졌다 — POLICY 스킬(정적) + 매치된 스킬(동적)
             # 을 하나의 마운트 목록으로 합친다(add-only, 이름 중복 제거).
@@ -4420,6 +4549,32 @@ def _spawn_one(cwd: str, skill: str, task: str, unattended: bool,
                 f"매치): 스킬 {skill_lines} "
                 f"(skill-repository {skill_source['skill_sha']}) 가이던스만 붙는다 — "
                 f"집행은 core 훅뿐이다.{cross_family_clause}\n"))
+            if skill_judge_outcome == "pending":
+                # 이슈 #3230: 위 마운트 목록은 POLICY 스킬뿐이다 — 이번 과제
+                # 텍스트와의 매치(skill_judge)는 디스패치 전에 안 불렸다
+                # (fail-open, "nothing at all" 선택 — 위 join 제거 코멘트).
+                # PR#3250 이 이름 붙인 세 성질(reactive/advisory/no-rollback)
+                # 중 reactive 를 이 지시문으로 완화한다: 그냥 "correction
+                # 이 오면 반영해라"(round 2 분석이 이미 0% 발화율로 부족하다고
+                # 측정한 형태)가 아니라, 실체 작업 전에 최소 한 번 더 확인하라고
+                # 명시적 순서를 못박는다. 이슈 #1960 baseline
+                # (docs/issue-1960/reports/execution-observation/
+                # baseline-measurement.md) 이 측정한 synchronous 0/38 보다
+                # 이 reactive 버전이 나으리라는 보장은 없다는 걸 이 세션도
+                # 안다; 이 지시문은 그 격차를 좁히려는 시도이지 해소했다는
+                # 주장이 아니다.
+                task = task + _dp("cross-family-pending", (
+                    "\n\n스킬 판정 보류(이슈 #3230): 위 마운트 목록은 이번 과제 "
+                    "텍스트와의 매치 없이 POLICY 스킬만으로 fail-open 됐다 — "
+                    "skill_judge 판정이 디스패치 전에 안 끝났기 때문이다(median "
+                    "~20s). 판정이 끝나면 이 세션 자신의 다음 도구 호출에서 "
+                    "amendment 알림(PostToolUse, 이슈 #3129 채널)으로 correction 이 "
+                    "온다 — advisory 텍스트이지 시스템 프롬프트 재작성이 아니다. "
+                    "실체 작업(파일 쓰기/커밋) 전에 도구를 최소 한 번 더 호출해 "
+                    "그 correction 이 왔는지 확인하라: 왔다면 거기 이름난 스킬을 "
+                    "add-only 로(이미 마운트된 목록을 대체하지 않고) Skill 도구로 "
+                    "추가 로드하라. 안 왔다면 위 마운트 목록으로 계속 진행해도 "
+                    "된다 — 이 채널은 무한정 기다리라는 뜻이 아니다.\n"))
         # 이슈 #1960 phase B: 마운트된 스킬이 하나라도 있으면(--skills 든
         # POLICY 스킬이든) 실체 작업을 시작하기 전에 그 목록을 이번 과제와
         # 대조해보라고 스폰 시점에 못박는다. 베이스라인 측정
@@ -4457,23 +4612,23 @@ def _spawn_one(cwd: str, skill: str, task: str, unattended: bool,
                                   "\n\n" + _SKILL_CHECK_PROSE
                                   + "\n\n" + _SKILL_VERDICT_PROSE)
         # 이슈 #2382: board_snapshot(cwd) 는 docs/issue-*/ 아래 파일 내용을
-        # 해시한다 — 이 지점은 두 가지를 모두 지킨다: (a)
-        # write_record_skeleton() 이 이미 그 트리 밑에 스켈레톤을 썼다(진짜
-        # 의존성, "before" 스냅샷이 세션이 안 쓴 스켈레톤을 세션이 바꾼
-        # 것으로 잘못 셀 수 있다), (b) 위 cross_family join
-        # (`_cross_family_future.result()`) 이 이미 끝나 skill_judge 자문이
-        # `docs/issue-<n>/reports/consult-log/`(consult.py) 에 남길 로그
-        # 파일도 이미 다 써졌다 — 여기보다 일찍(예: directive_write 직후)
-        # 던기면 그 consult-log 쓰기가 board_snapshot 의 "before"/"after"
-        # 스냅샷 중 어느 쪽에 들어갈지 스레드 스케줄링에 따라 갈려, 세션이
-        # 안 건드린 파일이 "다른 역할의 기록을 건드렸다"(계약 §11)로
-        # 오탐될 수 있다(실측: 이 재배치 전 시도가
+        # 해시한다 — write_record_skeleton() 이 이미 그 트리 밑에 스켈레톤을
+        # 썼다(진짜 의존성, "before" 스냅샷이 세션이 안 쓴 스켈레톤을
+        # 세션이 바꾼 것으로 잘못 셀 수 있다). board_snapshot 은
+        # issue_fetch/core/settings/design_bearing/spawn_cmd 결과 중 어느
+        # 것도 안 읽는다 — 예전에는 이 다섯을 전부 기다린 뒤(함수 맨 끝,
+        # session Popen 직전) 처음 불렸다. 여기서 먼저 던지고 실제 사용
+        # 지점(맨 아래)에서 join 만 한다.
+        # 이슈 #3230: 예전엔 이 지점이 또한 cross_family join 이 이미 끝나
+        # skill_judge 자문이 `docs/issue-<n>/reports/consult-log/` 에 남길
+        # 로그도 이미 다 써진 뒤였다(실측: 그 순서를 깬 이전 시도가
         # test_spawn_one_call_site_fires_after_own_session_end_event 를
-        # 깼다). board_snapshot 은 issue_fetch/core/settings/
-        # design_bearing/spawn_cmd 결과 중 어느 것도 안 읽는다 — 예전에는
-        # 이 다섯을 전부 기다린 뒤(함수 맨 끝, session Popen 직전) 처음
-        # 불렸다. 여기서 먼저 던지고 실제 사용 지점(맨 아래)에서 join 만
-        # 한다.
+        # 깼다) — 그 자문을 Popen 뒤 detached 서브프로세스로 옮기면서 그
+        # 보장이 사라졌다(그 서브프로세스의 consult-log 쓰기는 이제 이
+        # "before" 스냅샷보다 한참 뒤, 세션이 도는 동안 아무 때나 landing
+        # 한다). `board.ALT_RECORD_SUBDIRS`에 `consult-log/` 를 얹어 같은
+        # 문제를 타이밍이 아니라 경로로 고쳤다(board.py 주석) — 그 exemption
+        # 이 없으면 여기를 다시 join 지점으로 되돌려야 했을 것이다.
         _board_snapshot_executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
         _board_snapshot_future = _board_snapshot_executor.submit(board_snapshot, cwd)
         # 이슈 #2014 (artifact-gate phase 3): `design-artifacts:` 선언이
@@ -4655,6 +4810,25 @@ def _spawn_one(cwd: str, skill: str, task: str, unattended: bool,
         # session-start 이벤트 바로 앞으로 옮겨, `total`이 spawn 진입부터
         # session-start까지 전체 구간을 담게 한다.
         print(_bootstrap_timing_line(skill), file=sys.stderr)
+        # 이슈 #3230 (R007): "cross_family" `_timed()` 단계 하나만이 아니라
+        # 이 `total`(spawn 진입부터 session-start 직전까지 전체 구간, 위
+        # 이슈 #2186 코멘트) 자체가 R007 이 줄이려는 "소비자(worker 세션)
+        # 가 실체 작업 전에 기다리는 시간"이다 — before/after 를 같은
+        # 이벤트 이름으로 비교 가능하게 남긴다(may not remove/must extend
+        # existing instrumentation, 이슈 본문의 must-not). 이 이벤트가
+        # 생기기 전(디스패치가 여전히 cross_family join 을 기다리던 시절)
+        # 의 "before" 수치는 이 이벤트로는 못 구한다 — 그 시절의 대기는
+        # `skill_judge_perf`(consult.py) 의 `wall_s` 중앙값(median
+        # 20.700s, n=31)으로 대신 인용한다: 그 시절 코드는 이 join 을
+        # Popen 바로 앞에서 blocking 으로 했으므로, 그 판정 자체의
+        # wall-clock 이 곧 소비자가 기다린 시간의 실측 하한이었다(레코드의
+        # before/after 절 참고).
+        ledger_write({
+            "event": "dispatch_ready_perf", "ts": int(time.time()), "skill": skill,
+            "issue": issue, "skill_judge_outcome": skill_judge_outcome,
+            "wall_s_to_popen": round(
+                sum(_BOOTSTRAP_TIMING.get(p, 0.0) for p in _BOOTSTRAP_PHASES), 3),
+        })
         t0 = time.monotonic()
         # stream-json 을 줄 단위로 받아 라이브 로그에 tee 한다 — "지금 뭐
         # 하는 중인가"가 세션이 끝나기 전에도 보이게. 최종 result 이벤트가
@@ -4837,6 +5011,13 @@ def _spawn_one(cwd: str, skill: str, task: str, unattended: bool,
                               {"pid": os.getpid(), "stage": "popen",
                                "error": str(exc)})
             raise
+        if issue is not None and skill_judge_outcome == "pending":
+            # 이슈 #3230: 세션은 이미 Popen 됐다 — 이 지점부터는 무엇을
+            # 해도 소비자(방금 뜬 worker 세션)의 시작 시각에 더 이상
+            # 안 얹힌다. 여기서 던지는 게 이 라운드가 없애려던 바로 그
+            # 대기(median 20.7s)를 되살리지 않는다는 뜻이다.
+            _launch_cross_family_delivery(cwd, issue, skill, skills,
+                                          _cross_family_task_text)
         roster_register(roster_key, {
             "pid": proc.pid, "skill": skill,
             "issue": issue, "ts": int(time.time()),
