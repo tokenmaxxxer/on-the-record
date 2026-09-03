@@ -553,7 +553,8 @@ def run_pair(pair_id: str, repo: str, skill_name: str, model: str,
                                         evaluator_fn=evaluator_fn)
 
     gated = rcp.gate_pair_on_h1(pair_id, workspace_on, workspace_off,
-                                 skill_name=skill_name, compute_h2=compute_h2)
+                                 skill_name=skill_name, compute_h2=compute_h2,
+                                 dispatch_confirmed=True)
     if gated.get("h2") and gated["h2"].get("h2_unavailable"):
         gated["h2_unavailable_reason"] = gated["h2"]["h2_unavailable_reason"]
         gated["h2"] = None

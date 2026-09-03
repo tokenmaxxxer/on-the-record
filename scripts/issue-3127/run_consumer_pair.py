@@ -507,7 +507,8 @@ def _find_latest_session_log(workspace: Path | None) -> Path | None:
     return candidates[0] if candidates else None
 
 
-def collect_skill_invocation(workspace: Path | None, skill_name: str) -> dict:
+def collect_skill_invocation(workspace: Path | None, skill_name: str,
+                              dispatch_confirmed: bool = False) -> dict:
     """H1's manipulation-check evidence (re-operationalized 2026-09-02,
     issue #3127 consult, `runs/consult-logs/20260902T125610799701-
     948846.log`): whether the target skill was actually INVOKED via the
@@ -537,11 +538,36 @@ def collect_skill_invocation(workspace: Path | None, skill_name: str) -> dict:
     the arm; the init event's plugin list is populated from the same
     resolved-skill-sources spawn.py itself computes pre-session for the
     roster, see `_skill_roster_fields()` in skills.py).
+
+    `dispatch_confirmed` (issue #3245 round 3 -- live-reproduced watch
+    race: `execute_arm()` recorded `dispatch_returncode: 0` and
+    `status: "watched-to-completion"` for both arms of a real pair, yet
+    this function's old unconditional "never reached a dispatched,
+    log-producing state" message still fired when the session log could
+    not be found -- because the log had since been rotated/reclaimed
+    from disk, not because the arm never ran. A caller that already knows
+    dispatch+watch succeeded (`run_pair()` only reaches this gate after
+    confirming both arms are `watched-to-completion`) must pass
+    `dispatch_confirmed=True` so a missing log is reported as `unknown`
+    -- unobservable now, never asserted as `never-dispatched` when
+    positive proof of dispatch already exists elsewhere in the same
+    result. Defaults to `False` so a caller with no such proof keeps the
+    original, more conservative message.
     """
     log_path = _find_latest_session_log(workspace)
     if log_path is None:
+        if dispatch_confirmed:
+            return {"session_log": None, "mounted": None, "invoked": False,
+                    "measured": False, "status": "unknown",
+                    "reason": f"no {workspace}.session.*.log found, but "
+                              "this arm's own dispatch+watch already "
+                              "confirmed completion (dispatch_returncode=0, "
+                              "watched-to-completion) -- the log is missing "
+                              "now, not evidence the arm never ran; "
+                              "invocation status is unknown, never "
+                              "never-dispatched"}
         return {"session_log": None, "mounted": None, "invoked": False,
-                "measured": False,
+                "measured": False, "status": "never-dispatched",
                 "reason": f"no {workspace}.session.*.log found -- the arm "
                           "never reached a dispatched, log-producing state"}
     result = _msi.analyze(workspace.name, str(log_path))
@@ -562,7 +588,8 @@ def collect_skill_invocation(workspace: Path | None, skill_name: str) -> dict:
 
 def compute_h1_manipulation(workspace_on: Path | None,
                              workspace_off: Path | None,
-                             skill_name: str | None) -> dict:
+                             skill_name: str | None,
+                             dispatch_confirmed: bool = False) -> dict:
     """H1 enforcement, re-operationalized 2026-09-02 (issue #3127
     consult, `runs/consult-logs/20260902T125610799701-948846.log`,
     following PR #3172's construct-validity finding).
@@ -615,17 +642,28 @@ def compute_h1_manipulation(workspace_on: Path | None,
                 "reason": "no skill_name supplied -- cannot compute the "
                           "invocation-based H1 check"}
 
-    on_invocation = collect_skill_invocation(workspace_on, skill_name)
-    off_invocation = collect_skill_invocation(workspace_off, skill_name)
+    on_invocation = collect_skill_invocation(workspace_on, skill_name,
+                                              dispatch_confirmed=dispatch_confirmed)
+    off_invocation = collect_skill_invocation(workspace_off, skill_name,
+                                               dispatch_confirmed=dispatch_confirmed)
     base = {"directive_bytes_parity": directive_bytes_parity,
             "on_invocation": on_invocation, "off_invocation": off_invocation}
 
     if not on_invocation["measured"]:
+        unknown = on_invocation.get("status") == "unknown"
         return {**base, "differs": False,
-                "reason": "the skills-on arm's session log could not be "
-                          "found/parsed for a real Skill tool_use call "
-                          f"({on_invocation['reason']}) -- treated as a "
-                          "manipulation-check failure, not silently passed"}
+                "h1_status": "unknown" if unknown else "never-dispatched",
+                "reason": ("the skills-on arm's session log is unknown, not "
+                            "never-dispatched -- dispatch+watch already "
+                            f"confirmed this arm ran ({on_invocation['reason']})"
+                            " -- excluded from H2 (missing evidence is not "
+                            "credited as manipulation-held), but this is not "
+                            "the same claim as the arm never having run"
+                           ) if unknown else (
+                            "the skills-on arm's session log could not be "
+                            "found/parsed for a real Skill tool_use call "
+                            f"({on_invocation['reason']}) -- treated as a "
+                            "manipulation-check failure, not silently passed")}
     if not on_invocation["invoked"]:
         return {**base, "differs": False,
                 "reason": "the skills-on arm's session log never recorded "
@@ -645,7 +683,7 @@ def compute_h1_manipulation(workspace_on: Path | None,
 
 def gate_pair_on_h1(pair_id: str, workspace_on: Path | None,
                      workspace_off: Path | None, skill_name: str | None = None,
-                     compute_h2=None) -> dict:
+                     compute_h2=None, dispatch_confirmed: bool = False) -> dict:
     """Applies the H1 gate to one pair (issue #3127 repair round, defect 2):
     computes H1 via `compute_h1_manipulation()`; if it fails, the pair is
     excluded from H2 and the exclusion + reason are recorded in the
@@ -660,7 +698,8 @@ def gate_pair_on_h1(pair_id: str, workspace_on: Path | None,
     whose invocation compute_h1_manipulation() checks for; omitting it
     forces an automatic H1 failure (see compute_h1_manipulation()).
     """
-    h1 = compute_h1_manipulation(workspace_on, workspace_off, skill_name)
+    h1 = compute_h1_manipulation(workspace_on, workspace_off, skill_name,
+                                  dispatch_confirmed=dispatch_confirmed)
     result = {"pair_id": pair_id, "h1": h1, "h1_manipulation_ok": h1["differs"]}
     if not h1["differs"]:
         result["excluded_from_h2"] = True
@@ -921,7 +960,8 @@ def run_pair(plan: Plan, pair: PairPlan, on_issue: int, off_issue: int,
                                     evaluator_fn=evaluator_fn)
 
     gated = gate_pair_on_h1(pair.pair_id, workspace_on, workspace_off,
-                             skill_name=plan.skill_name, compute_h2=compute_h2)
+                             skill_name=plan.skill_name, compute_h2=compute_h2,
+                             dispatch_confirmed=True)
     if gated.get("h2", {}) and gated["h2"].get("h2_unavailable"):
         gated["h2_unavailable_reason"] = gated["h2"]["h2_unavailable_reason"]
         gated["h2"] = None

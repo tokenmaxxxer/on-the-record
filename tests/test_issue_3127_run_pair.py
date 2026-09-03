@@ -85,7 +85,7 @@ class RunPairTest(unittest.TestCase):
                 return f"deliverable text for issue {issue}, no slug"
 
             with mock.patch.object(rcp, "collect_skill_invocation") as m_inv:
-                m_inv.side_effect = lambda ws, skill: \
+                m_inv.side_effect = lambda ws, skill, **kw: \
                     _fake_invocation(invoked="101" in str(ws))
                 result = rcp.run_pair(
                     self.plan, self.pair, on_issue=101, off_issue=102,
@@ -135,7 +135,7 @@ class RunPairTest(unittest.TestCase):
             m_exec.side_effect = lambda plan, pair, arm, issue, confirm: \
                 _watched_result(arm.name, issue)
             m_ws.side_effect = lambda plan, issue: Path(f"/tmp/ws-{issue}")
-            m_inv.side_effect = lambda ws, skill: \
+            m_inv.side_effect = lambda ws, skill, **kw: \
                 _fake_invocation(invoked="301" in str(ws))
 
             result = rcp.run_pair(
