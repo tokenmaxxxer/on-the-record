@@ -1053,11 +1053,24 @@ def _remote_branch_head(cwd: str, remote: str, branch: str) -> str | None:
     여기서 붙잡아 이 함수의 기존 '조회 실패' 신호(`None`)로 되돌린다 —
     호출부(`_unrecovered_commit_count()`)는 그 값을 이미
     `UNPUSHED_STATUS_UNKNOWN` 으로 읽으므로, 진짜 stranded 로도 healthy
-    로도 추측하지 않는다."""
+    로도 추측하지 않는다.
+
+    이슈 #3231 round 4: `NETWORK_TIMEOUT` 은 결국 fail-closed 시키지만,
+    자격증명 프롬프트가 뜨는 원격에서는 그 타임아웃 전체(180초)를
+    다 기다린 뒤에야 걸린다 — `skills.py`의 `_skill_repo_git_env()`,
+    `plumbing.py`의 `_git_env()`가 이미 쓰는 `GIT_TERMINAL_PROMPT`/
+    `GIT_ASKPASS` 두 키로 그 프롬프트 자체를 막아 즉시 실패시킨다.
+    `GIT_SSH_COMMAND`(`BatchMode=yes`)도 같이 얹는다 — SSH 키 패스프레이즈
+    프롬프트는 git 의 credential 레이어가 아니라 ssh 자신이 tty 를 직접
+    읽는 별도 경로라 앞의 두 키로는 안 막힌다(`skills.py`의
+    `_skill_repo_git_env()` 독스트링 참조)."""
     try:
+        ssh_cmd = os.environ.get("GIT_SSH_COMMAND", "ssh")
         c = _sp._run_net(
             ["git", "-C", cwd, "ls-remote", "--heads", remote, branch],
-            "[board] 원격 브랜치 헤드 조회")
+            "[board] 원격 브랜치 헤드 조회",
+            env={**os.environ, "GIT_TERMINAL_PROMPT": "0", "GIT_ASKPASS": "true",
+                 "GIT_SSH_COMMAND": f"{ssh_cmd} -o BatchMode=yes"})
     except SystemExit:
         return None
     if c.returncode != 0:

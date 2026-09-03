@@ -309,9 +309,9 @@ CHECKS = [
             "$TOKENMAXXXER_RULEBOOKS/skill-repository) or set "
             "MUSTER_SKILL_REPO=<checkout>/skills."
         ),
-        "source": "skills.py:182-197 (_skill_repo_root: MUSTER_SKILL_REPO env > sibling clone > managed clone)",
+        "source": "skills.py:197-212 (_skill_repo_root: MUSTER_SKILL_REPO env > sibling clone > managed clone)",
         "line_anchors": [
-            ("skills.py", 182, "def _skill_repo_root"),
+            ("skills.py", 197, "def _skill_repo_root"),
         ],
     },
     {
@@ -322,9 +322,9 @@ CHECKS = [
             "spawned session should resolve locally -- no plugin install "
             "populates this directory."
         ),
-        "source": "skills.py:468 (tier3 = _sp._local_skill_dirs(home / \".claude\" / \"skills\"))",
+        "source": "skills.py:483 (tier3 = _sp._local_skill_dirs(home / \".claude\" / \"skills\"))",
         "line_anchors": [
-            ("skills.py", 468, '_local_skill_dirs(home / ".claude" / "skills")'),
+            ("skills.py", 483, '_local_skill_dirs(home / ".claude" / "skills")'),
         ],
     },
     {
@@ -349,14 +349,14 @@ CHECKS = [
             "as -- this cannot be checked without a mutating write."
         ),
         "source": (
-            "on-the-record/hooks/git-push-guard.sh:328 (_ROLE_BRANCH_RE.match(d), "
+            "on-the-record/hooks/git-push-guard.sh:341 (_ROLE_BRANCH_RE.match(d), "
             "the primary enforcing logic that requires an issue-<n>/<skill> "
-            "branch); line 341 carries the remedy text for the fail-closed "
+            "branch); line 354 carries the remedy text for the fail-closed "
             "edge case where the remote's default branch cannot be resolved"
         ),
         "line_anchors": [
-            ("on-the-record/hooks/git-push-guard.sh", 328, "_ROLE_BRANCH_RE.match(d)"),
-            ("on-the-record/hooks/git-push-guard.sh", 341,
+            ("on-the-record/hooks/git-push-guard.sh", 341, "_ROLE_BRANCH_RE.match(d)"),
+            ("on-the-record/hooks/git-push-guard.sh", 354,
              "push your own role branch instead"),
         ],
     },

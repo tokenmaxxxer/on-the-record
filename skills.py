@@ -72,8 +72,23 @@ def _skill_repo_git_env() -> dict[str, str]:
     osxkeychain)를 막지 않으려 한다. 이 호출 지점은 익명 읽기 전용 clone/pull
     (공개 레포 `skill-repository`, push 없음)이라 토큰이 있든 없든 대화형
     프롬프트를 막아야 한다 — 게이팅하면 정확히 이 함수가 고치려는 그
-    (토큰 없는) 경우에 가드가 빠진다."""
-    return {**os.environ, "GIT_TERMINAL_PROMPT": "0", "GIT_ASKPASS": "true"}
+    (토큰 없는) 경우에 가드가 빠진다.
+
+    round-3 독립검증(PR #3256)이 이 두 키로 못 막는 별도 경로를 로컬
+    `sshd` + 패스프레이즈로 잠긴 키로 재현했다: SSH 키 패스프레이즈 프롬프트는
+    git 자신의 자격증명 레이어가 아니라 `ssh` 클라이언트가 직접 tty 를
+    읽는 별도 경로라 `GIT_TERMINAL_PROMPT`/`GIT_ASKPASS` 가 안 닿는다. 이
+    호출부는 지금 `https://` URL 을 그대로 써서 오늘은 도달 불가능하다고
+    검증됐지만("not reachable today" 는 이 한 호출 지점의 성질이지 이
+    가드 함수의 성질이 아니다), 가드는 메커니즘 쪽에 둔다: `GIT_SSH_COMMAND`
+    에 `BatchMode=yes` 를 얹어 SSH 쪽 프롬프트도 같은 fail-fast 로
+    막는다 — 기존 `GIT_SSH_COMMAND` 커스터마이즈가 있으면 덮어쓰지 않고
+    그 위에 옵션만 얹는다. `BatchMode=yes` 는 ssh-agent/pubkey 처럼 이미
+    비대화식으로 성립하는 인증은 그대로 통과시키고, 대화식 프롬프트가
+    실제로 필요한 경우만 막는다."""
+    ssh_cmd = os.environ.get("GIT_SSH_COMMAND", "ssh")
+    return {**os.environ, "GIT_TERMINAL_PROMPT": "0", "GIT_ASKPASS": "true",
+            "GIT_SSH_COMMAND": f"{ssh_cmd} -o BatchMode=yes"}
 
 
 def _skill_repo_managed_root() -> Path | None:
