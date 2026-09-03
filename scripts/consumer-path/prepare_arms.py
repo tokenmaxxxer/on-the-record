@@ -58,6 +58,7 @@ import argparse
 import getpass
 import hashlib
 import json
+import shutil
 import sys
 import tempfile
 import uuid
@@ -69,6 +70,58 @@ ROOT = Path(__file__).resolve().parent.parent.parent
 ARM_ON = "on"
 ARM_OFF = "off"
 SKILLS_ROOT_ENV_VAR = "MUSTER_SKILL_REPO"
+
+
+def default_credentials_source() -> Path:
+    """Where this operator's own CLI OAuth credentials normally live.
+    Not read unless a caller explicitly opts into `seed_credentials()`
+    (see its docstring for why this is opt-in, not automatic)."""
+    return Path.home() / ".claude" / ".credentials.json"
+
+
+def seed_credentials(home: Path, source: Path | None) -> dict:
+    """Copies `source` (this operator's real CLI OAuth credentials --
+    never skill content) into `<home>/.claude/.credentials.json` with
+    owner-only permissions, so a `claude -p` call under this arm's
+    freshly-created, otherwise-empty HOME can authenticate.
+
+    Without this, every arm HOME `build_manifest()` creates is an empty
+    `tempfile.mkdtemp()` with no credentials at all, and any `claude -p`
+    call under it fails immediately on "Not logged in" *before* any hook
+    or tool call runs -- issue #3245's independent-verification-1 and -2
+    both traced this live and reproduced it as the actual reason 0/5
+    pairs got dispatched in PR #3251, not the "CLI/hook regression"
+    that PR's own report (wrongly) diagnosed from `doctor()`'s coarse
+    fired/silent read on a session that never got past login.
+
+    Opt-in (callers pass `seed_credentials=True` to `build_manifest()`)
+    rather than automatic: most callers of this module -- including the
+    32 tests already covering it -- have no need to touch this
+    operator's live credentials file, and a manifest-preparation helper
+    silently reading and copying live OAuth tokens on every call would
+    be a surprising, unaudited side effect for callers that never asked
+    for a dispatch-ready HOME.
+
+    Fails soft, not closed: a missing source is a legitimate state (a
+    CI box with no logged-in CLI, or a test passing a source that is
+    deliberately absent to exercise this path) and is recorded as
+    `seeded: False` with a reason, not raised -- `build_manifest()`'s
+    caller decides whether an unseeded arm is fatal for what it is about
+    to do (real dispatch: yes: see `require_credentials`; a dry-run
+    manifest inspection: no). Never records the credential bytes
+    themselves, only paths and the seeded/not-seeded outcome."""
+    if source is None:
+        source = default_credentials_source()
+    if not source.is_file():
+        return {"seeded": False, "source": str(source), "dest": None,
+                 "reason": f"credentials source {source} does not exist"}
+    dest_dir = home / ".claude"
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    dest = dest_dir / ".credentials.json"
+    shutil.copyfile(source, dest)
+    dest.chmod(0o600)
+    return {"seeded": True, "source": str(source), "dest": str(dest),
+            "reason": None}
 
 
 class ArmPreparationError(Exception):
@@ -151,7 +204,8 @@ def dispatch_command(skill_name: str, model: str, issue_placeholder: str,
     ]
 
 
-def make_on_arm(home: Path, skills_root: Path) -> dict:
+def make_on_arm(home: Path, skills_root: Path, *, seed_creds: bool,
+                 credentials_source: Path | None) -> dict:
     skill_files = resolve_skill_files(skills_root)
     if not skill_files:
         raise ArmPreparationError(
@@ -159,16 +213,20 @@ def make_on_arm(home: Path, skills_root: Path) -> dict:
             "files -- refusing to prepare an 'on' arm that is "
             "indistinguishable from 'off'; pass --skills-root-on at a "
             "populated skill-repository checkout")
+    credentials = (seed_credentials(home, credentials_source)
+                   if seed_creds else None)
     return {
         "arm": ARM_ON,
         "home": str(home),
         "skills_root": str(skills_root),
         "skill_files": skill_files,
         "absence_check": None,
+        "credentials": credentials,
     }
 
 
-def make_off_arm(home: Path) -> dict:
+def make_off_arm(home: Path, *, seed_creds: bool,
+                  credentials_source: Path | None) -> dict:
     # Never created -- a path that does not exist is a stronger
     # demonstration of "not reachable" than an empty directory a stub
     # could later be written into, and there is nothing here to clean up.
@@ -180,17 +238,27 @@ def make_off_arm(home: Path) -> dict:
             f"'off' arm's skills root {off_skills_root} already exists "
             "or is non-empty -- refusing to report an absence that was "
             "not actually demonstrated")
+    # Credentials live under HOME/.claude/.credentials.json, entirely
+    # separate from off_skills_root (a sibling temp path this arm's HOME
+    # does not contain) -- seeding auth here does not touch, and cannot
+    # be mistaken for, the skills-absence this arm exists to demonstrate.
+    credentials = (seed_credentials(home, credentials_source)
+                   if seed_creds else None)
     return {
         "arm": ARM_OFF,
         "home": str(home),
         "skills_root": str(off_skills_root),
         "skill_files": [],
         "absence_check": absence_check,
+        "credentials": credentials,
     }
 
 
 def build_manifest(skills_root_on: Path, skill_name: str, model: str,
-                    operator: str) -> tuple[dict, list[Path]]:
+                    operator: str, *, seed_creds: bool = False,
+                    credentials_source: Path | None = None,
+                    require_credentials: bool = False
+                    ) -> tuple[dict, list[Path]]:
     """Returns (manifest, created_dirs) -- `created_dirs` is exactly the
     temporary HOMEs this call created, for the caller to clean up on
     success. Fails closed (raises `ArmPreparationError`) rather than
@@ -202,12 +270,22 @@ def build_manifest(skills_root_on: Path, skill_name: str, model: str,
     off_home = Path(tempfile.mkdtemp(prefix="consumer-path-off-home-"))
     created_dirs = [on_home, off_home]
     try:
-        on_arm = make_on_arm(on_home, skills_root_on)
-        off_arm = make_off_arm(off_home)
+        on_arm = make_on_arm(on_home, skills_root_on, seed_creds=seed_creds,
+                              credentials_source=credentials_source)
+        off_arm = make_off_arm(off_home, seed_creds=seed_creds,
+                                credentials_source=credentials_source)
         if on_arm["home"] == off_arm["home"]:
             raise ArmPreparationError(
                 "on/off arms received the same HOME -- isolation "
                 "invariant violated")
+        if require_credentials:
+            for arm in (on_arm, off_arm):
+                if not (arm["credentials"] and arm["credentials"]["seeded"]):
+                    raise ArmPreparationError(
+                        f"'{arm['arm']}' arm has no seeded credentials "
+                        "and require_credentials=True -- refusing to "
+                        "hand a dispatcher a HOME it cannot authenticate "
+                        "from")
     except ArmPreparationError:
         _cleanup(created_dirs)
         raise
