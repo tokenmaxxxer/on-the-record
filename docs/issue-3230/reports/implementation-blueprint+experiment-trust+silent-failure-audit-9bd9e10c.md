@@ -273,16 +273,16 @@ tests this round (`tests/test_issue_3230_cross_family_delivery.py` 9,
 
 ## Skill verdicts
 
-skill-verdict: implementation-blueprint -- applied: invoked; classified
+skill-verdict: implementation-blueprint — applied: invoked; classified
 this build as `pipeline` (`prep.py classify --surface backend --external
 no --logic transform --asynchronous yes`) before writing code -- four
 units (dispatch reorder, delivery callback, directive wait block,
 measurement), all under the five-unit solo-build threshold.
-skill-verdict: experiment-trust -- not-applicable: no variant-comparison
+skill-verdict: experiment-trust — not-applicable: no variant-comparison
 result is reported as a launch decision this round; the before/after
 numbers above are diagnostic measurements from real code execution, not
 an A/B experiment.
-skill-verdict: silent-failure-audit -- applied: invoked; the audit's
+skill-verdict: silent-failure-audit — applied: invoked; the audit's
 "catch and do nothing" signature is exactly what
 `_deliver_cross_family_amendment()`/`_launch_cross_family_delivery()`
 had to avoid, running as they do inside a detached subprocess nobody
