@@ -191,3 +191,21 @@ class TheFilterNeverSuppressesThePayloadTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TheWindowMatchesTheVerdictTest(unittest.TestCase):
+    """The payload and the report above it must not contradict each other."""
+
+    def test_the_payload_reads_the_boundary_the_diagnosis_compared_against(self):
+        import watchdog  # noqa: PLC0415
+        state = {}
+        entry = {"work": tempfile.mkdtemp(), "log": None}
+        # First tick establishes the stamp; second tick must expose the
+        # FIRST tick's time as the window, not its own "now".
+        watchdog._session_progress_state("issue-9/s", entry, state)
+        first = state["issue-9/s:last_workspace_scan_ts"]
+        time.sleep(0.01)
+        watchdog._session_progress_state("issue-9/s", entry, state)
+        self.assertEqual(state["issue-9/s:prev_workspace_scan_ts"], first)
+        self.assertLess(state["issue-9/s:prev_workspace_scan_ts"],
+                        state["issue-9/s:last_workspace_scan_ts"])

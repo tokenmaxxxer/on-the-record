@@ -300,7 +300,7 @@ def _session_tick_lines(key: str, entry: dict, state: dict | None,
         return []
     since = None
     if state is not None:
-        since = state.get(f"{key}:last_workspace_scan_ts")
+        since = state.get(f"{key}:prev_workspace_scan_ts")
     if since is None:
         since = time.time() - POLL_INTERVAL_SEC
     calls = []
@@ -395,6 +395,13 @@ def _session_progress_state(key: str, entry: dict, state: dict | None) -> str:
     if state is not None and work:
         seen_key = f"{key}:last_workspace_scan_ts"
         prev_ts = state.get(seen_key)
+        # Keep the boundary this tick actually compared against. The #3293
+        # payload used to read `last_workspace_scan_ts` after this line had
+        # already advanced it to now, so its window was zero seconds wide
+        # and it reported "files: none since last tick" for a session that
+        # had just written a file -- the payload contradicting, in the same
+        # tick, the very report it sits under.
+        state[f"{key}:prev_workspace_scan_ts"] = prev_ts
         state[seen_key] = time.time()
         if prev_ts is not None:
             try:
