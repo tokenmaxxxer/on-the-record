@@ -137,7 +137,14 @@ class LaunchCrossFamilyDeliveryTest(unittest.TestCase):
         self.assertEqual(cmd[deliver_idx + 1], "implementation")
         self.assertIn("--issue", cmd)
         self.assertIn("4242", cmd)
-        self.assertIn("--skills", cmd)
+        # This used to assert `--skills`, and that assertion was pinning
+        # the defect in place: `--skills` is a spawn selector consumed by
+        # main() long before this subcommand's own dispatch, so every
+        # delivery became a real spawn that launched another delivery
+        # (measured on a consumer machine as 3,189 workspaces / 34G). The
+        # skill set still travels, under a name no spawn branch claims.
+        self.assertNotIn("--skills", cmd)
+        self.assertIn("--cross-family-skills", cmd)
         self.assertIn("alpha,beta", cmd)
         self.assertIn("--task-file", cmd)
         task_file = cmd[cmd.index("--task-file") + 1]

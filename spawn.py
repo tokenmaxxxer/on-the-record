@@ -2266,6 +2266,11 @@ def main() -> int:
                     help="이 스폰 한 번만 쓸 모델 오버라이드: --model > "
                          "MUSTER_SKILL_MODEL > role_model.txt > \"sonnet\" (이슈#1736). "
                          "judge prefilter/validator 의 하드코딩 haiku 는 영향받지 않는다")
+    ap.add_argument("--cross-family-skills", default=None,
+                    help="cross-family-deliver 전용: 워커의 스킬 CSV 를 "
+                         "데이터로 넘긴다. --skills 를 쓰지 않는 이유는 "
+                         "그게 스폰 셀렉터라 이 서브커맨드보다 먼저 "
+                         "가로채기 때문이다(main() 의 가드 참조)")
     ap.add_argument("--skills", default=None,
                     help="이슈 #2572: 유일한 스폰 형태 — "
                          "spawn.py --skills <스킬>[,<스킬>...] \"<맡길 일>\" "
@@ -2482,6 +2487,29 @@ def main() -> int:
     # role-named session) can refuse everything else instead.
     _via_skills = False
     _skills_branch_identity: tuple[str, str] | None = None
+    # Internal subcommands are dispatched by name BEFORE any selector-flag
+    # branch can claim the invocation.
+    #
+    # `cross-family-deliver` carries `--skills` as data (the worker's skill
+    # set, to be delivered), not as a spawn selector. The `if a.skills:`
+    # branch below sits earlier in this function and does not look at
+    # `a.role`, so it swallowed that invocation and treated the positional
+    # role token as task text: every delivery became a real spawn whose
+    # `.task.txt` read `cross-family-deliver`, and each such spawn launched
+    # another delivery. Measured on a consumer machine as workspaces
+    # growing every tick with no sweep spawning anything -- 3,189
+    # directories and 34G at its worst.
+    #
+    # `_launch_cross_family_delivery()` no longer passes `--skills` (it
+    # passes `--cross-family-skills`), which fixes the observed collision.
+    # This guard is here because fixing only that flag fixes only that
+    # flag: any selector added above, or any future internal subcommand
+    # that happens to take a colliding option, reopens the same hole. The
+    # property is what holds -- a named internal subcommand is never a
+    # spawn -- rather than a list of flags kept in sync by hand.
+    if a.role in _INTERNAL_SUBCOMMANDS_NEVER_SPAWN:
+        a.skills = None
+        a.skill = None
     if a.skills:
         # Same argparse-binding convention as `--skill` right below: with
         # only one positional slot left once a selector flag takes over
@@ -2714,7 +2742,8 @@ def main() -> int:
             finally:
                 with contextlib.suppress(OSError):
                     os.unlink(a.task_file)
-        _deliver_cross_family_amendment(a.cwd, a.issue, skill_name, a.skills, task_text)
+        _deliver_cross_family_amendment(a.cwd, a.issue, skill_name,
+                                    a.cross_family_skills, task_text)
         return 0
     if a.role == "consult":
         if not a.task or not a.consult_question:
@@ -3957,6 +3986,13 @@ def _deliver_cross_family_amendment(cwd: str, issue: int, skill: str,
               f"{names}", file=sys.stderr)
 
 
+# Internal subcommands driven by this file's own detached subprocesses.
+# They are dispatched by `a.role` name and must never be reinterpreted as a
+# spawn by a selector flag that happens to share an option name -- see the
+# guard in `main()`.
+_INTERNAL_SUBCOMMANDS_NEVER_SPAWN = frozenset({"cross-family-deliver"})
+
+
 def _launch_cross_family_delivery(cwd: str, issue: int, skill: str,
                                    skills_csv: str | None, task_text: str) -> None:
     """Fire-and-forget: hand `_deliver_cross_family_amendment()`'s work to a
@@ -3993,7 +4029,10 @@ def _launch_cross_family_delivery(cwd: str, issue: int, skill: str,
            "cross-family-deliver", skill, "--issue", str(issue),
            "--task-file", task_path]
     if skills_csv:
-        cmd += ["--skills", skills_csv]
+        # NOT `--skills`: that flag is a spawn selector consumed earlier in
+        # `main()` than this subcommand's own dispatch, and passing it here
+        # turned every delivery into a spawn (see the guard in `main()`).
+        cmd += ["--cross-family-skills", skills_csv]
     try:
         with log_path.open("a", encoding="utf-8") as lf:
             subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=lf,
