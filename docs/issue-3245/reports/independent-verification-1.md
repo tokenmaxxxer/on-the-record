@@ -161,10 +161,13 @@ MERGEABLE, read this session); this session's own `Read` of
   `16e96c75` -- the subject of this verification.
 - `docs/issue-3245/reports/experiment-trust+product-discovery-hypothesis-testing+silent-failure-audit-7b04b22b.md`
   -- the PR's own record, read in full.
-- `docs/issue-3245/_assets/01-study-groups/manifest.json`,
-  `docs/issue-3245/_assets/01-study-groups/transport.json`, and
-  `docs/issue-3245/_assets/01-study-groups/result.json` -- the actual
-  artifacts the report's table is drawn from, read this session.
+- `docs/issue-3245/_assets/01-study-groups/manifest.json` (untracked here --
+  PR #3251's own artifact, removed from this branch's tree per board-gate
+  after being read),
+  `docs/issue-3245/_assets/01-study-groups/transport.json` (untracked here,
+  same reason), and `docs/issue-3245/_assets/01-study-groups/result.json`
+  (untracked here, same reason) -- the actual artifacts the report's
+  table is drawn from, read this session.
 - `scripts/consumer-path/prepare_arms.py` (PR #3185) -- the trust-root
   construction this PR builds on; its fresh-HOME-per-arm design is the
   mechanism behind finding 1 below.
@@ -177,7 +180,24 @@ MERGEABLE, read this session); this session's own `Read` of
 canonical: this session's own transcript, created this turn (`spawn.py
 doctor` run twice, isolated-HOME probe reproduction, both in "What was
 done" §5), and `docs/issue-3245/_assets/01-study-groups/result.json`
-`dispatch_stderr` (read this session)
+(untracked here, same reason as "Upstream basis" above) `dispatch_stderr`
+(read this session, its full text quoted verbatim in "What was done" §5)
+
+amendments-reconciled: issuecomment-5518683506 (posted 2026-09-03T00:58:36Z
+by JiwonJung94 on issue #3245, read this session via `gh api
+repos/tokenmaxxxer/on-the-record/issues/comments/5518683506`) asks both
+independent-verification sessions to treat the report's "CLI does not
+fire plugin hooks headless" claim as the primary thing to verify.
+canonical: issuecomment-5518683506's own text, quoted verbatim: "Of 24
+spawned-session logs from today on this machine, 20 contain plugin hook
+activity" -- a contradicting signal from the orchestrator's own side,
+independent of and prior to this session reading it. This session's
+finding 1 below, reached independently in "What was done" §5 before this
+comment was read, answers the comment's request: not "hooks generally
+fire fine so the report is simply wrong," but the specific mechanism --
+the fresh, credential-less `HOME` `prepare_arms.py` builds per arm makes
+`claude -p` fail to authenticate, which `doctor()`'s coarse `fired_ups
+and fired_pre` check cannot distinguish from genuine hook silence.
 
 1. **The report's "environment-wide CLI/hook regression" diagnosis (its
    own Open finding 1) is very likely a misdiagnosis of a credential-
