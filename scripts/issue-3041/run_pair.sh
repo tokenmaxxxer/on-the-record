@@ -16,6 +16,28 @@
 # constant between the two arms; only the skill layer differs.
 set -euo pipefail
 
+# Issue #3288 finding 1: `timeout` is GNU coreutils and a stock macOS has
+# no such binary (Homebrew installs it as `gtimeout`). Both dispatch sites
+# below began with it, so this harness could not run on a Mac at all --
+# the array-guard fix that cleared the compat check left the line failing
+# for a different reason the check could not see.
+#
+# Resolved once, here, rather than at each call site: whichever of the two
+# exists is used, and if neither does the command still runs, unbounded,
+# with the loss of the bound said out loud rather than silently dropped.
+_otr_timeout() {
+  local secs="$1"; shift
+  if command -v timeout >/dev/null 2>&1; then
+    timeout "$secs" "$@"
+  elif command -v gtimeout >/dev/null 2>&1; then
+    gtimeout "$secs" "$@"
+  else
+    printf '[run_pair] neither timeout nor gtimeout on PATH -- running without a %ss bound (install coreutils to restore it)\n' "$secs" >&2
+    "$@"
+  fi
+}
+
+
 TASK_FILE="$1"
 TASK_ID="$2"
 OUT_ROOT="$3"
@@ -93,7 +115,7 @@ run_arm() {
   if [ "$arm" = "skills-on" ]; then
     (
       cd "$ws"
-      timeout 600 env ${UNSET_ARGS[@]+"${UNSET_ARGS[@]}"} claude -p "$PROMPT" \
+      _otr_timeout 600 env ${UNSET_ARGS[@]+"${UNSET_ARGS[@]}"} claude -p "$PROMPT" \
         --model "$MODEL" \
         --permission-mode bypassPermissions \
         --setting-sources project,local \
@@ -106,7 +128,7 @@ run_arm() {
   else
     (
       cd "$ws"
-      timeout 600 env ${UNSET_ARGS[@]+"${UNSET_ARGS[@]}"} claude -p "$PROMPT" \
+      _otr_timeout 600 env ${UNSET_ARGS[@]+"${UNSET_ARGS[@]}"} claude -p "$PROMPT" \
         --model "$MODEL" \
         --permission-mode bypassPermissions \
         --setting-sources project,local \

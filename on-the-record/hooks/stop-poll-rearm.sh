@@ -126,7 +126,17 @@ PY
 _deadman_check() {
   local checkout="$1"
   hook_fires_record "Stop stop-poll-rearm.sh deadman-check" "$_HOOK_PAYLOAD"
-  timeout 20 python3 "${checkout}/spawn.py" deadman-check 2>/dev/null || true
+  # Issue #3288: `timeout` is GNU-only; a stock macOS has neither this
+  # binary nor a failure anyone would notice here, since the whole call is
+  # `|| true`. Prefer it, fall back to gtimeout, and run unbounded rather
+  # than skipping the check entirely if neither exists.
+  if command -v timeout >/dev/null 2>&1; then
+    timeout 20 python3 "${checkout}/spawn.py" deadman-check 2>/dev/null || true
+  elif command -v gtimeout >/dev/null 2>&1; then
+    gtimeout 20 python3 "${checkout}/spawn.py" deadman-check 2>/dev/null || true
+  else
+    python3 "${checkout}/spawn.py" deadman-check 2>/dev/null || true
+  fi
 }
 
 if [ -n "$CHECKOUT" ]; then

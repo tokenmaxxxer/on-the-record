@@ -70,8 +70,17 @@ _TEST_PATH_RE = re.compile(
 # /proc it emits a runtime-visible NoProcOnPlatform notice -- not just a
 # docstring -- before falling back to None (see `_report_write_result()`
 # and `record_amendment_from_response()`).
-KNOWN_PROC_SITES = {"roster.py", "watchdog.py", "monitor_ownership.py",
-                    "amendment_channel.py"}
+# Issue #3288 finding 3: a set of filenames allowlists the FILE, so any
+# further /proc dependency added to an already-listed file is invisible.
+# The counts below pin how many each file is reviewed for; adding one more
+# fails the check until someone reviews it and updates the number, which
+# is the whole point of a reviewed set.
+KNOWN_PROC_SITES = {
+    "roster.py": 3,
+    "watchdog.py": 1,
+    "monitor_ownership.py": 1,
+    "amendment_channel.py": 4,
+}
 
 _FLOCK_INVOKE_RE = re.compile(r"(^|[^\w#])flock(\s|$)")
 _FLOCK_GUARD_RE = re.compile(r"command\s+-v\s+flock")
@@ -92,7 +101,12 @@ _GNU_ONLY_BARE = {
 # dependency -- a backtick-quoted `` `/proc/<pid>` `` mention in Korean
 # prose/docstring (e.g. board.py's documented-but-not-yet-built mechanism)
 # is not a live call and must not be flagged as one.
-_PROC_RE = re.compile(r"[\"']/proc/")
+# Issue #3288 finding 2: the old form required a trailing slash, so
+# `os.path.isdir("/proc")` -- the exact platform guard PR #3282 added --
+# went unseen. It was only caught because that file already carried a
+# second, matching reference. A regex that misses the idiom a fix
+# introduces is checking the previous generation of the code.
+_PROC_RE = re.compile(r"""["']/proc(?:/|["'])""")
 
 
 def is_live(path: str) -> bool:
@@ -161,6 +175,46 @@ def check_sh_file(path: str, content: str) -> list[str]:
     return violations
 
 
+# Issue #3288 finding 1: GNU-only binaries invoked without a guard. A
+# stock macOS has none of these, and the failure is a command-not-found
+# at the moment the harness would have done its work.
+_GNU_ONLY = ("timeout", "realpath", "sed -i ", "readlink -f")
+
+
+def check_sh_gnu_only(rel: str, text: str) -> list[str]:
+    """GNU-only invocations that no `command -v` guard covers.
+
+    A line is excused when the file tests for the binary somewhere -- the
+    fallback shape (`command -v timeout ... elif command -v gtimeout`) is
+    what portability looks like here, and flagging it would push authors
+    toward deleting the bound rather than making it portable.
+    """
+    out = []
+    for i, line in enumerate(text.splitlines(), 1):
+        stripped = line.strip()
+        if stripped.startswith("#"):
+            continue
+        for tool in _GNU_ONLY:
+            name = tool.split()[0]
+            if not stripped.startswith(tool):
+                continue
+            # `timeout=30` inside a heredoc'd Python block is a keyword
+            # argument, not the coreutils binary. Caught as a false
+            # positive on amends-landing-apply.sh the first time this rule
+            # ran; a shell invocation is followed by whitespace.
+            rest = stripped[len(name):]
+            if rest[:1] not in (" ", "\t"):
+                continue
+            if f"command -v {name}" in text:
+                continue
+            out.append(
+                f"{rel}:{i}: `{name}` is GNU coreutils and absent on a "
+                "stock macOS -- guard it with `command -v` and a fallback "
+                f"(Homebrew installs it as g{name}), or the line fails "
+                "there with command-not-found")
+    return out
+
+
 def check_py_file(path: str, content: str) -> list[str]:
     hits = []
     for lineno, line in _code_lines(content):
@@ -177,18 +231,34 @@ def run(repo_root: Path | None = None, verbose: bool = False) -> tuple[bool, str
     for rel in sh_files:
         content = (root / rel).read_text(encoding="utf-8", errors="replace")
         violations.extend(check_sh_file(rel, content))
+        violations.extend(check_sh_gnu_only(rel, content))
 
     proc_hits: list[str] = []
     for rel in py_files:
         content = (root / rel).read_text(encoding="utf-8", errors="replace")
         hits = check_py_file(rel, content)
         proc_hits.extend(hits)
-        if hits and Path(rel).name not in KNOWN_PROC_SITES:
+        if not hits:
+            continue
+        reviewed = KNOWN_PROC_SITES.get(Path(rel).name)
+        if reviewed is None:
             violations.append(
                 f"{rel}: new /proc dependency outside the reviewed set "
                 f"{sorted(KNOWN_PROC_SITES)} -- must be made portable or "
                 "given a runtime-visible degradation notice, then added "
                 "to KNOWN_PROC_SITES"
+            )
+        elif len(hits) != reviewed:
+            # Issue #3288 finding 3: the allowlist used to key on the file
+            # alone, so a second dependency added to a reviewed file was
+            # invisible. The count is what makes a NEW one visible; a
+            # decrease matters too, since it means the reviewed number no
+            # longer describes the file.
+            violations.append(
+                f"{rel}: {len(hits)} /proc dependencies, but "
+                f"{reviewed} were reviewed -- each one needs a portable "
+                "fallback or a runtime-visible degradation notice; update "
+                "KNOWN_PROC_SITES once it has one"
             )
 
     proc_files = sorted({h.split(":")[0] for h in proc_hits})
