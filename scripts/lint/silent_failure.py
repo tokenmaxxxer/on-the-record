@@ -360,6 +360,17 @@ def scan_file(path: Path) -> FileResult:
         tree = ast.parse(text, filename=str(path))
     except SyntaxError as exc:
         return FileResult(path=path, error=f"syntax error: {exc}")
+    except ValueError as exc:
+        # round-2 reliability fix (PR #3237 finding): `ast.parse`/`compile`
+        # raise `ValueError` -- not `SyntaxError` -- for a source string
+        # containing an embedded null byte. Only `SyntaxError` was caught
+        # here before, so this shape crashed `scan_file` uncaught, and
+        # since `scan_targets` calls `scan_file` in a plain loop with no
+        # per-target try/except, that uncaught exception took every
+        # sibling target's already-collected findings down with it (the
+        # exact silent-failure shape this lint exists to catch, reproduced
+        # inside the tool itself).
+        return FileResult(path=path, error=f"cannot parse: {type(exc).__name__}: {exc}")
     lines = text.splitlines()
     visitor = _Visitor(lines, _assign_targets(tree), _raw_returned_call_ids(tree))
     visitor._root = tree
@@ -369,16 +380,43 @@ def scan_file(path: Path) -> FileResult:
     return FileResult(path=path, findings=findings, call_sites=call_sites)
 
 
-def _expand_targets(paths) -> list:
+def _walk_py_files(root: Path) -> "tuple[list, list]":
+    """Every `*.py` under `root`, plus an explicit error for every
+    directory `os.walk` could not list (round-2 reliability fix, PR
+    #3237 finding: `Path.rglob` swallows a `PermissionError` on a
+    subdirectory it cannot list and simply yields nothing further from
+    that subtree -- a permission-denied directory becomes indistinguishable
+    from a genuinely empty one, the exact silent-failure shape this lint
+    exists to catch, reproduced inside the tool itself). `os.walk`'s own
+    `onerror` callback is the only way to observe that failure instead of
+    it being swallowed the same way."""
+    files: list = []
+    errors: list = []
+
+    def _onerror(exc: OSError) -> None:
+        bad = Path(getattr(exc, "filename", None) or root)
+        errors.append((bad, f"cannot list directory: {type(exc).__name__}: {exc}"))
+
+    for dirpath, dirnames, filenames in os.walk(root, onerror=_onerror):
+        dirnames[:] = [d for d in dirnames if d != "__pycache__"]
+        for fn in filenames:
+            if fn.endswith(".py"):
+                files.append(Path(dirpath) / fn)
+    return sorted(files), errors
+
+
+def _expand_targets(paths) -> "tuple[list, list]":
     out = []
+    errors = []
     for raw in paths:
         p = Path(raw)
         if p.is_dir():
-            out.extend(sorted(
-                f for f in p.rglob("*.py") if "__pycache__" not in f.parts))
+            found, walk_errors = _walk_py_files(p)
+            out.extend(found)
+            errors.extend(walk_errors)
         else:
             out.append(p)
-    return out
+    return out, errors
 
 
 @dataclass
@@ -390,8 +428,8 @@ class ScanSummary:
 
 
 def scan_targets(paths) -> ScanSummary:
-    targets = _expand_targets(paths)
-    findings, errors, call_sites = [], [], 0
+    targets, expand_errors = _expand_targets(paths)
+    findings, errors, call_sites = [], list(expand_errors), 0
     for t in targets:
         r = scan_file(t)
         call_sites += r.call_sites
@@ -407,10 +445,15 @@ def _run_scan(paths) -> int:
         print(f"ERROR {t}: {err}")
     for f in summary.findings:
         print(f.render())
+    # errors (including an unlistable directory -- round-2 fix) are
+    # checked before the empty-state message: an inaccessible directory
+    # that yielded zero readable .py files is a distinct failure from
+    # "there genuinely are no .py files here", and must not be reported
+    # with the same "no .py files found" text a real empty target gets.
+    if summary.errors:
+        return 1
     if summary.files_scanned == 0:
         print("no .py files found under the given target(s)")
-        return 1
-    if summary.errors:
         return 1
     if summary.call_sites == 0:
         print("no subprocess call sites found across the scanned target(s) -- "
