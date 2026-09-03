@@ -225,10 +225,21 @@ class SkillJudgePerfP90Test(unittest.TestCase):
 
 
 class SkillJudgeOverlapOrderingTest(unittest.TestCase):
-    """`_spawn_one` 이 skill_judge 자문을 워크스페이스/브랜치 셋업보다
-    먼저 던지고 그 join 은 셋업 뒤(cross_family 단계)에서만 일어나는지를
-    코드 순서로 검증한다(이슈 #2061 acceptance: "judge launch precedes
-    workspace setup ... with the join after")."""
+    """이슈 #3230: `_spawn_one` 이 skill_judge 자문(`_cross_family_skill_
+    matches_with_consult`)을 자기 안에서 아예 동기 호출하지 않는지 검증한다.
+
+    이전 버전(이슈 #2061)은 이 자문을 워크스페이스/브랜치 셋업보다 먼저
+    ThreadPoolExecutor 로 던지고, 셋업이 끝난 뒤(cross_family 단계)에만
+    그 결과를 join 했다 -- 자문 자체는 항상 완료를 기다렸다. 이슈 #3230
+    은 그 join 자체를 없앴다: 판정은 Popen 뒤 detached 서브프로세스
+    (`_launch_cross_family_delivery`)로 완전히 옮겨졌고, `_spawn_one` 은
+    그 함수를 호출조차 하지 않는다(fail-open, skill_judge_outcome=
+    "pending"). 이 클래스의 이전 테스트(`ThreadPoolExecutor` 를 통째로
+    fake 로 갈아치워 "judge-dispatch"/"join" 이벤트 순서를 확인하던
+    형태)는 그 fake 가 core_plugin_dirs/issue_fetch/board_snapshot 등
+    다른 submit 호출까지 함께 가로채 우연히 계속 통과했다 -- judge 자문
+    자체를 더 이상 검증하지 않는 vacuous 테스트가 됐다는 뜻이라, 새
+    불변식(호출 자체가 없다)으로 바꿨다."""
 
     def _prep_repo(self, td):
         work = Path(td) / "work"
@@ -372,29 +383,40 @@ class SkillJudgeLedgerFieldTest(unittest.TestCase):
     @staticmethod
     def _outcome_entry(recorded):
         # _spawn_one writes more than one ledger entry (e.g. a separate
-        # "skill_judge_perf" sample) alongside the session-outcome record
-        # this class cares about; recorded[-1] is only the outcome entry
-        # when nothing else races it onto the list last, which is not
-        # guaranteed across two independently-scheduled ledger_write
-        # calls. Find the one entry that actually carries the field under
-        # test, and require there be exactly one.
-        matches = [e for e in recorded if "skill_judge_outcome" in e]
+        # "skill_judge_perf" sample, and -- issue #3230 -- a
+        # "dispatch_ready_perf" sample) alongside the session-outcome
+        # record this class cares about; recorded[-1] is only the outcome
+        # entry when nothing else races it onto the list last, which is
+        # not guaranteed across independently-scheduled ledger_write
+        # calls. The outcome entry is the one ledger.jsonl shape in this
+        # repo with no "event" key at all (every named event -- perf
+        # samples, gate fail-opens, ...) always carries one) -- filter on
+        # that instead of "carries skill_judge_outcome", which issue
+        # #3230's new dispatch_ready_perf event now also does.
+        matches = [e for e in recorded
+                   if "skill_judge_outcome" in e and "event" not in e]
         assert len(matches) == 1, (
-            f"expected exactly 1 entry with skill_judge_outcome, got "
-            f"{len(matches)}: {recorded}")
+            f"expected exactly 1 entry with skill_judge_outcome and no "
+            f"'event' key, got {len(matches)}: {recorded}")
         return matches[0]
 
-    def test_ledger_entry_records_completed_outcome(self):
+    def test_ledger_entry_records_pending_outcome_regardless_of_matcher_verdict(self):
+        # Issue #3230: `_spawn_one` no longer calls
+        # `_cross_family_skill_matches_with_consult()` synchronously at
+        # all for a skill-repo source -- the judge call moved to a
+        # detached subprocess launched after Popen
+        # (`_launch_cross_family_delivery`), so whatever that mocked
+        # matcher would have returned ("completed" here) never reaches
+        # `_spawn_one`'s own ledger write; the recorded outcome is always
+        # "pending" for this source, by construction. What the matcher
+        # verdict/note delivery looks like when it DOES run is
+        # `_deliver_cross_family_amendment()`'s own contract, covered
+        # separately (test/test_cross_family_delivery.py), not this
+        # class's.
         with tempfile.TemporaryDirectory() as td:
             work = self._prep_repo(td)
             recorded = self._run_spawn_one_with_outcome(td, work, ([], "completed"))
-        self.assertEqual(self._outcome_entry(recorded)["skill_judge_outcome"], "completed")
-
-    def test_ledger_entry_records_fail_open_outcome(self):
-        with tempfile.TemporaryDirectory() as td:
-            work = self._prep_repo(td)
-            recorded = self._run_spawn_one_with_outcome(td, work, ([], "fail-open"))
-        self.assertEqual(self._outcome_entry(recorded)["skill_judge_outcome"], "fail-open")
+        self.assertEqual(self._outcome_entry(recorded)["skill_judge_outcome"], "pending")
 
     def test_ledger_entry_records_not_run_when_skill_source_is_not_skill_repo(self):
         skill_source = {"source": "flat", "skill_dirs": [], "skills": [], "skill_sha": None}

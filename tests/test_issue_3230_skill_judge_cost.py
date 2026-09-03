@@ -110,6 +110,63 @@ class TestAggregation:
         assert measure_skill_judge._percentile([1.0], 0.9) == 1.0
 
 
+def _dispatch_ready_event(wall_s_to_popen: float, outcome: str,
+                          issue: int = 4242) -> dict:
+    return {
+        "event": "dispatch_ready_perf", "ts": 1700000000, "skill": "implementation",
+        "issue": issue, "skill_judge_outcome": outcome,
+        "wall_s_to_popen": wall_s_to_popen,
+    }
+
+
+class TestDispatchReadyParsing:
+    """Issue #3230: `dispatch_ready_perf` -- this round's own before/after
+    evidence, added alongside the async dispatch change itself so a
+    reader can compare consumer-facing wait pre/post from real
+    `runs/ledger.jsonl` data, same discipline as the pre-existing
+    `skill_judge_perf` scan above (must-not: extend the instrumentation,
+    don't replace it)."""
+
+    def test_parses_dispatch_ready_events_and_ignores_others(self, tmp_path):
+        d = tmp_path / "ws1" / "runs"
+        d.mkdir(parents=True)
+        lines = [
+            json.dumps(_dispatch_ready_event(20.7, "completed")),
+            json.dumps(_real_event(16.663)),
+            json.dumps(_dispatch_ready_event(0.05, "pending")),
+        ]
+        (d / "ledger.jsonl").write_text("\n".join(lines) + "\n")
+        events = measure_skill_judge.parse_dispatch_ready_events(
+            str(d / "ledger.jsonl"))
+        assert len(events) == 2
+        assert {e.skill_judge_outcome for e in events} == {"completed", "pending"}
+
+    def test_missing_wall_s_field_is_skipped_not_crashed(self, tmp_path):
+        d = tmp_path / "ws1" / "runs"
+        d.mkdir(parents=True)
+        (d / "ledger.jsonl").write_text(
+            json.dumps({"event": "dispatch_ready_perf", "skill_judge_outcome": "pending"})
+            + "\n")
+        events = measure_skill_judge.parse_dispatch_ready_events(str(d / "ledger.jsonl"))
+        assert events == []
+
+    def test_stats_by_outcome_groups_and_reports_median(self):
+        events = [
+            measure_skill_judge.DispatchReadyEvent(20.0, "completed", "implementation", 1, "f"),
+            measure_skill_judge.DispatchReadyEvent(24.0, "completed", "implementation", 1, "f"),
+            measure_skill_judge.DispatchReadyEvent(0.05, "pending", "implementation", 1, "f"),
+            measure_skill_judge.DispatchReadyEvent(0.07, "pending", "implementation", 1, "f"),
+        ]
+        by_outcome = measure_skill_judge.dispatch_ready_stats_by_outcome(events)
+        assert by_outcome["completed"]["count"] == 2
+        assert by_outcome["completed"]["median_s"] == 22.0
+        assert by_outcome["pending"]["count"] == 2
+        assert round(by_outcome["pending"]["median_s"], 6) == 0.06
+
+    def test_empty_events_yields_empty_grouping(self):
+        assert measure_skill_judge.dispatch_ready_stats_by_outcome([]) == {}
+
+
 class TestReportShape:
     def test_report_contains_expected_sections(self, tmp_path):
         _write_ledger(tmp_path, "ws1", [_real_event(16.663), _noise_event()])
