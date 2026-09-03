@@ -1021,9 +1021,20 @@ def _workspace_clean_state(
                            if set(ln[:2]) & _sp._CONTENT_DIFF_CODES]
     not_ignored = _sp._workspace_untracked_not_ignored(w)
 
+    # Issue #3266: `otr-consult-trace` (consult.py's `_CONSULT_TRACE_REF`) is
+    # a local bookkeeping branch the harness writes and never pushes, so
+    # every workspace carries a commit that exists nowhere else, forever.
+    # Measured on this machine: 108 workspaces looked like they held
+    # unpreserved work, and 95 of them were held by that branch alone. It is
+    # the same category as the `.on-the-record/` scaffolding this issue
+    # already excluded -- harness output, not the session's deliverable.
+    # `--exclude` must precede `--branches`; git applies it to the ref
+    # globs that follow, and putting it after silently excludes nothing
+    # (which is how I first measured 0 instead of 95).
     ahead = subprocess.run(
-        ["git", "-C", str(w), "log", "--branches", "--not", "--remotes",
-         "--oneline"], capture_output=True, text=True).stdout.strip()
+        ["git", "-C", str(w), "log", "--exclude=otr-consult-trace",
+         "--branches", "--not", "--remotes", "--oneline"],
+        capture_output=True, text=True).stdout.strip()
     if ahead and not content_diff_lines and not not_ignored:
         # 레거시 워크스페이스는 생성 뒤 다시 fetch 된 적이 없어, 브랜치가
         # 이미 origin 에 머지됐어도 로컬 remote-tracking ref 가 그 사실을
@@ -1037,8 +1048,8 @@ def _workspace_clean_state(
         except (subprocess.TimeoutExpired, OSError):
             pass
         ahead = subprocess.run(
-            ["git", "-C", str(w), "log", "--branches", "--not",
-             "--remotes", "--oneline"],
+            ["git", "-C", str(w), "log", "--exclude=otr-consult-trace",
+             "--branches", "--not", "--remotes", "--oneline"],
             capture_output=True, text=True).stdout.strip()
 
     if content_diff_lines or not_ignored or ahead:
