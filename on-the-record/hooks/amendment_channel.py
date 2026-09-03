@@ -517,6 +517,51 @@ def registered_repo_for_pid(pid: int, roster_path: Optional[str] = None) -> Opti
     return None
 
 
+def has_registered_ancestor(pid: int, roster_path: Optional[str] = None) -> bool:
+    """Is this process descended from a session `spawn.py` registered?
+
+    Issue #3283: `registered_repo_for_pid()` answers a different
+    question -- "which repo", which additionally requires the recorded
+    workspace to resolve to an `origin` slug. A worker whose workspace
+    has no resolvable origin gets `None` there, and reading that as "no
+    registered ancestor" would let it through the operator-only path and
+    assert any repo it liked. The gate has to key on the ancestry itself,
+    which is the thing a worker cannot forge, not on whether a slug
+    happened to parse.
+
+    Answers False where there is no /proc: the caller then falls back to
+    a weaker posture, which is stated at the call site rather than hidden
+    here.
+    """
+    if not os.path.isdir("/proc"):
+        return False
+    path = roster_path if roster_path is not None else default_roster_path()
+    if not path:
+        return False
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            roster = json.load(f)
+    except (OSError, ValueError):
+        return False
+    if not isinstance(roster, dict):
+        return False
+    by_pid = {}
+    for entry in roster.values():
+        if isinstance(entry, dict) and isinstance(entry.get("pid"), int):
+            by_pid[entry["pid"]] = entry.get("start_time")
+    current = pid
+    for _ in range(_MAX_ANCESTRY_HOPS):
+        if current in by_pid:
+            recorded = by_pid[current]
+            if recorded is None or _proc_start_time(current) == recorded:
+                return True
+        parent = _proc_ppid(current)
+        if parent is None or parent == current or parent <= 1:
+            return False
+        current = parent
+    return False
+
+
 def _safe(s: str) -> str:
     return re.sub(r"[^A-Za-z0-9_.-]", "_", s)
 
@@ -881,9 +926,23 @@ class AmendmentWritten(NamedTuple):
     version: int
 
 
+class WorkerMayNotAssertRepo(NamedTuple):
+    """A caller with a registered ancestor tried to name its own repo.
+
+    Issue #3283: the explicit path exists for the operator's session,
+    which has no ancestry to attribute. A worker has one, so its repo is
+    read from the roster rather than taken from its argv -- otherwise the
+    forgery this module was built to prevent walks in the front door.
+    """
+
+    registered_repo: str
+    asserted_repo: str
+
+
 WriteResult = Union[
     AmendmentSkipped, NoProcOnPlatform, NoRegisteredRepo, NoIssueUrlInResponse,
     RepoMismatch, MarkerWriteFailed, AmendmentWritten,
+    WorkerMayNotAssertRepo,
 ]
 
 
@@ -932,11 +991,63 @@ def record_amendment_from_response(
     return AmendmentWritten(parsed.repo, parsed.issue, version)
 
 
+def amend_as_orchestrator(state_dir: str, repo: str, issue: str,
+                          note: str = "", pid: Optional[int] = None,
+                          roster_path: Optional[str] = None) -> WriteResult:
+    """Deliver an amendment for an explicitly named repo (issue #3283).
+
+    The ancestry rule this module is built on is right and stays: a worker
+    must not be able to say which repo a correction is for, because cwd
+    and argv are things its own tool calls can set. But an orchestrator
+    was started by the operator, not by `spawn.py`, so it has no
+    registered ancestor and the channel refused it -- failing for exactly
+    the participant it exists to serve. Three corrections were lost that
+    way on 2026-09-03, each one loud at the hook's stderr and invisible
+    where it mattered.
+
+    So the two paths are mutually exclusive, and the property that
+    identifies a worker is what denies it this one: a caller WITH a
+    registered ancestor is refused here and must use the hook path, where
+    its repo is attributed rather than asserted. A caller without one is
+    the operator's own session and may name the repo.
+
+    The weaker half, stated rather than glossed: "has no registered
+    ancestor" is weaker evidence than "has one", since a determined worker
+    could orphan itself (setsid, parent exits) and shed its ancestry. That
+    is a much stronger attack than the one this rule was written against,
+    and a worker doing it has already left its contract far behind -- so
+    it is accepted, not defended against, and every use of this path
+    records the caller's pid so the choice is auditable.
+    """
+    caller = pid if pid is not None else os.getpid()
+    if has_registered_ancestor(caller, roster_path=roster_path):
+        # Keyed on the ancestry, not on whether a repo slug resolved --
+        # a worker whose workspace has no parseable origin is still a
+        # worker, and reading its unresolvable slug as "no ancestor" was
+        # a hole this gate had on its first draft.
+        registered = registered_repo_for_pid(caller, roster_path=roster_path)
+        return WorkerMayNotAssertRepo(registered or "an unresolvable repo",
+                                       repo)
+    version = write_amendment(state_dir, repo, issue,
+                              note=note or f"operator amendment (pid {caller})")
+    if version is None:
+        return MarkerWriteFailed(repo, issue)
+    return AmendmentWritten(repo, issue, version)
+
+
 def _report_write_result(result: WriteResult) -> None:
     """Emit the one stderr line each fail-closed `WriteResult` variant
     promises. Quiet for `AmendmentSkipped` (nothing happened, nothing to
     report) and `AmendmentWritten` (the success path speaks for itself via
     the marker file). Never raises."""
+    if isinstance(result, WorkerMayNotAssertRepo):
+        sys.stderr.write(
+            "amendment-channel: this session is registered in spawn.py's "
+            f"roster for {result.registered_repo!r}, so it may not assert "
+            f"{result.asserted_repo!r} -- a spawned worker's repo is "
+            "attributed from its ancestry, never taken from its arguments "
+            "(issue #3283) -- no marker written\n")
+        return
     if isinstance(result, NoProcOnPlatform):
         sys.stderr.write(
             "amendment-channel: this platform has no /proc (macOS) -- "

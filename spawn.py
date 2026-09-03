@@ -2301,6 +2301,8 @@ def main() -> int:
                     help="이 스폰 한 번만 쓸 모델 오버라이드: --model > "
                          "MUSTER_SKILL_MODEL > role_model.txt > \"sonnet\" (이슈#1736). "
                          "judge prefilter/validator 의 하드코딩 haiku 는 영향받지 않는다")
+    ap.add_argument("--note", dest="amend_note", default=None,
+                    help="amend: 정정 내용을 한 줄로")
     ap.add_argument("--owner", default=None,
                     help="monitor-stop: 멈출 하트비트의 소유자 토큰 "
                          "(<pid>.<start>). spawn.py monitor-list 로 확인한다 — "
@@ -2752,6 +2754,26 @@ def main() -> int:
         note = f" ({res['reason']})" if res.get("reason") else ""
         print(f"멈췄다: owner={res['token']} pid={res['pid']}{note}")
         return 0
+    if a.role == "amend":
+        # Issue #3283: the operator's own correction channel. The hook
+        # path attributes a worker's repo from its ancestry; this one lets
+        # a session with no ancestry name the repo, and refuses any caller
+        # that HAS one -- amend_as_orchestrator() explains why the two
+        # paths must stay mutually exclusive.
+        if a.issue is None or not a.repo:
+            sys.exit("사용법: spawn.py amend --issue <n> --repo <owner/repo> "
+                     "[--note <텍스트>]")
+        sys.path.insert(0, str(ROOT / "on-the-record" / "hooks"))
+        import amendment_channel as _ac  # noqa: PLC0415
+        res = _ac.amend_as_orchestrator(
+            _ac.default_state_dir(), a.repo, str(a.issue),
+            note=a.amend_note or "")
+        _ac._report_write_result(res)
+        if isinstance(res, _ac.AmendmentWritten):
+            print(f"정정 전달됨: {res.repo}#{res.issue} (버전 {res.version}) — "
+                  "그 이슈로 도는 세션이 다음 훅 발화에서 읽는다")
+            return 0
+        sys.exit("정정을 전달하지 못했다 — 위 사유를 보라")
     if a.role == "tick-payload":
         # Issue #3293 stage 2: the read-only wake payload, for the branch
         # where `poll-due` said a sibling already claimed this window.
