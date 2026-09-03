@@ -71,7 +71,16 @@ mkdir -p "$pair_dir"
 pair_dir="$(cd "$pair_dir" && pwd -P)"
 
 seed="$pair_dir/_seed"
-git clone --quiet "$REPO_URL" "$seed"
+# issue #3231 round 4: suppress a credential prompt on $REPO_URL so a
+# revoked/private remote fails the clone immediately instead of blocking
+# on stdin this script has no tty for -- same env keys the rest of the
+# repo's git network call sites (skills.py, board.py, git-push-guard.sh)
+# already use, including GIT_SSH_COMMAND=... BatchMode=yes for the
+# separate SSH-passphrase prompt path (REPO_URL is https:// today, but
+# the guard belongs with the mechanism, not with one URL's scheme).
+GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=true \
+  GIT_SSH_COMMAND="${GIT_SSH_COMMAND:-ssh} -o BatchMode=yes" \
+  git clone --quiet "$REPO_URL" "$seed"
 git -C "$seed" checkout --quiet "$PIN_SHA"
 echo "pinned_sha=$(git -C "$seed" rev-parse HEAD)"
 

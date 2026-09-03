@@ -293,10 +293,23 @@ def _resolve_remote_name(explicit, current_branch, cwd):
 def _resolve_default_branch(remote_name, cwd):
     """The remote's own advertised HEAD symref — never a hardcoded branch
     name, never the remote's branch-protection API. None on any lookup
-    failure (offline, unknown remote, no `git`) — callers fail CLOSED."""
+    failure (offline, unknown remote, no `git`) — callers fail CLOSED.
+
+    issue #3231 round 4: GIT_TERMINAL_PROMPT/GIT_ASKPASS suppress a
+    credential prompt on a remote that demands one, so this fails on the
+    20s timeout above instead of blocking on stdin the hook has no tty
+    for anyway — same two keys plumbing.py's _git_env() already uses.
+    GIT_SSH_COMMAND (BatchMode=yes) rides along too -- an SSH key
+    passphrase prompt is the ssh client reading /dev/tty directly, a
+    separate path the two git-side keys don't reach (see skills.py's
+    _skill_repo_git_env() docstring)."""
     try:
+        ssh_cmd = os.environ.get("GIT_SSH_COMMAND", "ssh")
+        env = {**os.environ, "GIT_TERMINAL_PROMPT": "0", "GIT_ASKPASS": "true",
+               "GIT_SSH_COMMAND": f"{ssh_cmd} -o BatchMode=yes"}
         r = subprocess.run(["git", "ls-remote", "--symref", remote_name, "HEAD"],
-                            capture_output=True, text=True, timeout=20, cwd=cwd)
+                            capture_output=True, text=True, timeout=20, cwd=cwd,
+                            env=env)
     except (OSError, subprocess.SubprocessError):
         return None
     if r.returncode != 0:
