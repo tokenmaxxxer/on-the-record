@@ -1,0 +1,54 @@
+{
+  "captured_before_dispatch": true,
+  "argv_deviation_from_template": "off arm's --skills value carries the skill-repo: source qualifier (issue #2579); on arm's does not. See module docstring -- proven necessary on this machine, not a stub or a claim of byte-identical argv.",
+  "arms": {
+    "on": {
+      "argv": [
+        "python3",
+        "spawn.py",
+        "--skills",
+        "product-discovery-hypothesis-preregistration",
+        "We're about to test a redesigned first-run onboarding flow that introduces new users to the comprehension-gap feature described in docs/issue-5's one-pager, against the current onboarding that doesn't mention it. Read that one-pager (and docs/issue-1 for the job it's built for) so you know what the feature is actually supposed to do for a student, then write up exactly what we'll measure, what number counts as success, how long we'll run it, and what we'd watch to make sure the new flow doesn't quietly hurt something else.",
+        "--issue",
+        "21",
+        "--model",
+        "sonnet",
+        "-C",
+        "/home/jwjung/study-companion"
+      ],
+      "env": {
+        "HOME": "/tmp/consumer-path-on-home-3rvofs0p",
+        "MUSTER_SKILL_REPO": "/tmp/consumer-path-on-skills-65h8lvj0"
+      }
+    },
+    "off": {
+      "argv": [
+        "python3",
+        "spawn.py",
+        "--skills",
+        "skill-repo:product-discovery-hypothesis-preregistration",
+        "We're about to test a redesigned first-run onboarding flow that introduces new users to the comprehension-gap feature described in docs/issue-5's one-pager, against the current onboarding that doesn't mention it. Read that one-pager (and docs/issue-1 for the job it's built for) so you know what the feature is actually supposed to do for a student, then write up exactly what we'll measure, what number counts as success, how long we'll run it, and what we'd watch to make sure the new flow doesn't quietly hurt something else.",
+        "--issue",
+        "22",
+        "--model",
+        "sonnet",
+        "-C",
+        "/home/jwjung/study-companion"
+      ],
+      "env": {
+        "HOME": "/tmp/consumer-path-off-home-afxaqzfp",
+        "MUSTER_SKILL_REPO": "/tmp/consumer-path-off-skills-decoy-b2mdedvc"
+      }
+    }
+  },
+  "credential_seeding": {
+    "on": {
+      "seeded": true,
+      "source": "/home/jwjung/.claude/.credentials.json"
+    },
+    "off": {
+      "seeded": true,
+      "source": "/home/jwjung/.claude/.credentials.json"
+    }
+  }
+}

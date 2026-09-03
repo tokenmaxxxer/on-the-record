@@ -1,0 +1,152 @@
+{
+  "pair_id": "02-onboarding-experiment",
+  "h1": {
+    "directive_bytes_parity": {
+      "on_bytes": 13026,
+      "off_bytes": 13026,
+      "note": "secondary environment-parity diagnostic only -- does NOT gate H1 (construct-validity gap found by PR #3172: a skill delivered via the runtime Skill tool never touches this file set, so identical bytes here is expected and uninformative, not a manipulation-check failure)"
+    },
+    "on_invocation": {
+      "session_log": "/tmp/consumer-path-on-home-3rvofs0p/.tokenmaxxxer/work/study-companion-issue-21-product-discovery-hypothesis-preregistration-203c1713.session.20260903T231613.119785.log",
+      "mounted": [
+        "product-discovery-hypothesis-preregistration",
+        "work-in-english"
+      ],
+      "invoked": true,
+      "measured": true,
+      "mounted_but_not_invoked": false,
+      "invoked_but_not_mounted": false,
+      "reason": null
+    },
+    "off_invocation": {
+      "session_log": "/tmp/consumer-path-off-home-afxaqzfp/.tokenmaxxxer/work/study-companion-issue-22-product-discovery-hypothesis-preregistration-bb3ad9c8.session.20260903T232024.134525.log",
+      "mounted": [
+        "product-discovery-hypothesis-preregistration",
+        "work-in-english"
+      ],
+      "invoked": true,
+      "measured": true,
+      "mounted_but_not_invoked": false,
+      "invoked_but_not_mounted": false,
+      "reason": null
+    },
+    "content_manipulation": {
+      "content_ok": true,
+      "reason": null,
+      "on_sha256": "a917a97f528c2f63ec18413d85f9f33602ec1e4c081ab805219a51894e635109",
+      "off_sha256": "373175304ac47fcbf467c6b52fb3793b8ffcb11f68105a0a697adfbc2e787977",
+      "real_source_sha256": "a917a97f528c2f63ec18413d85f9f33602ec1e4c081ab805219a51894e635109",
+      "real_source_path": "/home/jwjung/skill-registry/skills/product-discovery-hypothesis-preregistration/SKILL.md",
+      "real_source_size_bytes": 8458,
+      "off_size_bytes": 166
+    },
+    "differs": true,
+    "reason": null
+  },
+  "h1_manipulation_ok": true,
+  "excluded_from_h2": false,
+  "exclusion_reason": null,
+  "h2": {
+    "scrub_replacement_counts": {
+      "skills-on": 8,
+      "skills-off": 9
+    },
+    "scored_on_scrubbed_text": {
+      "document_1_actual_arm": "skills-off",
+      "document_2_actual_arm": "skills-on",
+      "verdict": {
+        "document_1_score": 9,
+        "document_2_score": 9,
+        "verdict": "indistinguishable",
+        "reasoning": "Both name a single primary metric with a fixed numeric threshold (10pp lift vs 5pp lift), state mechanical ship/no-ship/inconclusive decision rules fixed in advance, specify sample size and duration with capped extensions, and define bounded guardrails (Doc1: 5pp/5pp non-inferiority; Doc2: 3pp/3pp/2pp with significance test) that trigger breach-not-win outcomes even when the primary metric passes. Doc2 is marginally more rigorous with an explicit interim-peeking policy and per-guardrail significance testing, but both fully satisfy every rubric element to a comparable degree."
+      }
+    },
+    "scored_on_unscrubbed_text": {
+      "document_1_actual_arm": "skills-on",
+      "document_2_actual_arm": "skills-off",
+      "verdict": {
+        "document_1_score": 9,
+        "document_2_score": 9,
+        "verdict": "indistinguishable",
+        "reasoning": "Both fix a single primary metric with a concrete numeric threshold (5pp lift / 10pp lift) plus significance test, state mechanical ship/breach/kill/inconclusive decision rules, register sample size and duration with capped extensions, and name multiple bounded guardrails (3pp/3pp/2pp drops vs. 5pp/5pp non-inferiority plus an abandonment guardrail). Both explicitly treat a primary-metric win with a guardrail breach as non-ship rather than an unqualified win, so they satisfy the rubric equally well despite differing methodological choices (completion-vs-activation, baseline assumptions)."
+      }
+    },
+    "scrubbed_scores_by_arm": {
+      "skills-off": 9,
+      "skills-on": 9
+    },
+    "unscrubbed_scores_by_arm": {
+      "skills-on": 9,
+      "skills-off": 9
+    },
+    "scrub_changed_score": false
+  },
+  "workspace_location_notes": {
+    "on": "located study-companion-issue-21-product-discovery-hypothesis-preregistration-203c1713 (computed name was study-companion-issue-21-product-discovery-hypothesis-preregistration)",
+    "off": "located study-companion-issue-22-product-discovery-hypothesis-preregistration-bb3ad9c8 (computed name was study-companion-issue-22-product-discovery-hypothesis-preregistration)"
+  },
+  "manifest": "/tmp/claude-1000/-home-jwjung-tokenmaxxxer/f1c8e2a2-3d9d-4d30-805e-b03e333c42ed/scratchpad/r007-02-clean/manifest.json",
+  "transport": "/tmp/claude-1000/-home-jwjung-tokenmaxxxer/f1c8e2a2-3d9d-4d30-805e-b03e333c42ed/scratchpad/r007-02-clean/transport.json",
+  "manipulation_check": {
+    "manipulation_held": true,
+    "pair_excluded": false,
+    "manifest": "/tmp/claude-1000/-home-jwjung-tokenmaxxxer/f1c8e2a2-3d9d-4d30-805e-b03e333c42ed/scratchpad/r007-02-clean/manifest.json",
+    "transport": "/tmp/claude-1000/-home-jwjung-tokenmaxxxer/f1c8e2a2-3d9d-4d30-805e-b03e333c42ed/scratchpad/r007-02-clean/transport.json",
+    "arms_checked": [
+      "on",
+      "off"
+    ]
+  },
+  "arm_results": {
+    "on": {
+      "arm": "on",
+      "issue": 21,
+      "status": "watched-to-completion",
+      "wall_clock_to_pr_open_s": 248.59812631644309,
+      "wall_clock_to_landed_s": null,
+      "landing_measurement_status": "not_measured -- this harness observes only the spawned session's own session-end event, which under the unmodified two-phase protocol is at most a phase-1 proposal PR opening, not a merge to main. wall_clock_to_pr_open_s is the honest name for what was actually timed.",
+      "dispatch_returncode": 0,
+      "watch_returncode": 0,
+      "watch_stderr": null
+    },
+    "off": {
+      "arm": "off",
+      "issue": 22,
+      "status": "watched-to-completion",
+      "wall_clock_to_pr_open_s": 341.8150271810591,
+      "wall_clock_to_landed_s": null,
+      "landing_measurement_status": "not_measured -- this harness observes only the spawned session's own session-end event, which under the unmodified two-phase protocol is at most a phase-1 proposal PR opening, not a merge to main. wall_clock_to_pr_open_s is the honest name for what was actually timed.",
+      "dispatch_returncode": 0,
+      "watch_returncode": 0,
+      "watch_stderr": null
+    }
+  },
+  "verification": {
+    "on": {
+      "verification_rounds": null,
+      "defects_found": null,
+      "measured": false,
+      "reason": "gh pr view 'issue-21/product-discovery-hypothesis-preregistration' failed: no pull requests found for branch \"issue-21/product-discovery-hypothesis-preregistration\""
+    },
+    "off": {
+      "verification_rounds": null,
+      "defects_found": null,
+      "measured": false,
+      "reason": "gh pr view 'issue-22/product-discovery-hypothesis-preregistration' failed: no pull requests found for branch \"issue-22/product-discovery-hypothesis-preregistration\""
+    }
+  },
+  "cost": {
+    "on": {
+      "cost_usd": null,
+      "measured": false,
+      "reason": "no runs/ledger.jsonl entries for issue=21 skill='product-discovery-hypothesis-preregistration'",
+      "skipped_malformed_lines": 0
+    },
+    "off": {
+      "cost_usd": null,
+      "measured": false,
+      "reason": "no runs/ledger.jsonl entries for issue=22 skill='product-discovery-hypothesis-preregistration'",
+      "skipped_malformed_lines": 0
+    }
+  }
+}
