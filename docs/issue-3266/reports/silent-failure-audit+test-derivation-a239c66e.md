@@ -148,7 +148,16 @@ mechanically for this landing).
 
 ## What did not work
 
-None.
+The first draft of the FIFO regression test exercised
+`spawn._workspace_clean_state()` end-to-end (create the FIFO at the report
+path, expect `reason == "dirty"`) and failed -- derived: `git ls-files -z
+--others` on a scratch repo with a `mkfifo`'d file at a tracked path
+printed nothing, so `_workspace_untracked_not_ignored()` never calls
+`_report_stub_has_no_content()` on a FIFO at all and the workspace read
+back fully clean instead of dirty. Switched the test to call
+`spawn._report_stub_has_no_content()` directly (matching PR #3271's own
+reproduction method), which does exercise the stat-gate fix. Logged at
+`docs/issue-3266/reports/silent-failure-audit+test-derivation-a239c66e/deviation-log/20260903T055934796071-789e8983c1fe9f90.md`.
 
 ## Upstream basis
 
