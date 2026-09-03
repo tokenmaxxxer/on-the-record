@@ -199,12 +199,30 @@ def _skill_repo_root() -> Path | None:
     `MUSTER_SKILL_REPO` env > 형제 클론 (`$TOKENMAXXXER_RULEBOOKS/
     skill-repository`) > 관리 클론(이슈 #1789 — skill-repository가 공개된
     뒤로는 on-the-record 소유 클론이 다른 관리 체크아웃과 같은 fallback을
-    쓸 수 있다). 셋 다 없으면 `None`."""
+    쓸 수 있다). 셋 다 없으면 `None`.
+
+    이슈 #3277: `MUSTER_SKILL_REPO` 가 **설정됐지만 그 경로가 없을 때**는
+    아래 티어로 흘려보내지 않고 `None` 을 돌려준다. 예전에는 "일부러 없는
+    경로로 지정했다"와 "아예 지정 안 했다"를 똑같이 처리해, 관리 클론(항상
+    채워져 있다)으로 조용히 빠졌다. 그래서 스킬을 끄려고 없는 경로를
+    지정한 실험 팔이 실제로는 스킬을 그대로 받았다 — R007(이슈 #3245)이
+    네 라운드 동안 켠 팔과 끈 팔이 아니라 켠 팔과 켠 팔을 비교하고 있었던
+    이유다. env 를 명시적으로 준 호출자는 어느 저장소를 쓸지 이미 정한
+    것이고, 그 선택을 조용히 뒤집는 fallback 은 선택이 아니라 사고다.
+
+    비어 있는 문자열은 여전히 미지정으로 본다(`MUSTER_SKILL_REPO=`는 셸에서
+    변수를 지우는 관용구다) — 구별하는 건 "설정됐고 값이 있는데 그 경로가
+    없다" 하나뿐이다."""
     env_value = os.environ.get("MUSTER_SKILL_REPO")
     if env_value:
         p = Path(os.path.expanduser(os.path.expandvars(env_value)))
         if p.is_dir():
             return p
+        # 이슈 #3277: 명시적 선택은 존중한다 — 없으면 없는 것이다.
+        print(f"[skills] MUSTER_SKILL_REPO={env_value!r} 가 가리키는 경로가 "
+              f"없다 — 스킬 저장소 없음으로 처리한다(fallback 하지 않는다).",
+              file=sys.stderr)
+        return None
     sibling = os.path.expandvars("$TOKENMAXXXER_RULEBOOKS/skill-repository")
     if "$" not in sibling:
         p = Path(os.path.expanduser(sibling))

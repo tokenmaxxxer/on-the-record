@@ -322,9 +322,9 @@ CHECKS = [
             "spawned session should resolve locally -- no plugin install "
             "populates this directory."
         ),
-        "source": "skills.py:483 (tier3 = _sp._local_skill_dirs(home / \".claude\" / \"skills\"))",
+        "source": "skills.py:501 (tier3 = _sp._local_skill_dirs(home / \".claude\" / \"skills\"))",
         "line_anchors": [
-            ("skills.py", 483, '_local_skill_dirs(home / ".claude" / "skills")'),
+            ("skills.py", 501, '_local_skill_dirs(home / ".claude" / "skills")'),
         ],
     },
     {
