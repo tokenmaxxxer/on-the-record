@@ -631,6 +631,21 @@ def check(repo: Path, pr: int | None = None, issue: int | None = None,
     # 레코드 텍스트가 필요해, PR 컨텍스트가 있을 때만 — 로컬 단독
     # 호출에서는 어떤 레코드를 볼지 결정할 근거가 없다.
     bad += gates.subprocess_call_shape_divergence(repo)
+
+    # issue #3228 round 2: diff-scoped (not repo-wide -- see
+    # gates.silent_failure_new_findings's own docstring for why) report
+    # of new SF001/SF002/SF003 findings on lines this diff itself added.
+    # Same already-established advisory posture as the
+    # subprocess_call_shape_divergence call right above it: neither is
+    # reachable from the real merge-blocking `--closes-only` CI entry
+    # point (this call sits after the `closes_only` guard, confirmed by
+    # `ci_reachable_gates`'s own reachability scan of this file) --
+    # both surface only through board.py's post-session gate_report()
+    # advisory to a human. The genuinely enforcing (PreToolUse-blocking)
+    # layer for this issue is silent-failure-lint-guard.sh, SF001-only,
+    # scoped to what a write-time fragment can check without false-
+    # denying a legitimate author.
+    bad += gates.silent_failure_new_findings(repo)
     if pr is not None:
         branch = _pr_head_ref(repo, pr)
         detected = _issue_and_skill_from_branch(branch) if branch else None
