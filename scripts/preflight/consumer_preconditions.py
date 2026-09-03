@@ -246,14 +246,14 @@ CHECKS = [
             "reporting a supported sys.platform."
         ),
         "source": (
-            "spawn.py:4708 (os.fork()/os.setsid() drives _spawn_one(), the "
+            "spawn.py:4891 (os.fork()/os.setsid() drives _spawn_one(), the "
             "real role-session spawn path); the same fork+setsid+dup2 "
-            "pattern also appears at spawn.py:2706 (background "
+            "pattern also appears at spawn.py:2738 (background "
             "validity-consult, a different feature that mirrors it)"
         ),
         "line_anchors": [
-            ("spawn.py", 4708, "os.fork()"),
-            ("spawn.py", 2706, "os.fork()"),
+            ("spawn.py", 4891, "os.fork()"),
+            ("spawn.py", 2738, "os.fork()"),
         ],
     },
     {
@@ -262,12 +262,12 @@ CHECKS = [
         "remedy": "Install the Claude Code CLI so `claude` resolves on PATH.",
         "source": (
             'pipeline.py:661 (spawn_cmd builds cmd = ["claude", "-p", ...]); '
-            "spawn.py:4765 (_spawn_one() is what actually execs it, via "
+            "spawn.py:5013 (_spawn_one() is what actually execs it, via "
             "subprocess.Popen(cmd, ...))"
         ),
         "line_anchors": [
             ("pipeline.py", 661, 'cmd = ["claude"'),
-            ("spawn.py", 4765, "subprocess.Popen("),
+            ("spawn.py", 5013, "subprocess.Popen("),
         ],
     },
     {
@@ -375,14 +375,14 @@ CHECKS = [
             "spawn.py:746, sys.exit() at spawn.py:751 when free bytes fall "
             "below MIN_FREE_BYTES_DEFAULT, os.statvfs() inode check follows "
             "and sys.exit()s again if free inodes fall below "
-            "MIN_FREE_INODES_DEFAULT) -- called at spawn.py:3298, before "
+            "MIN_FREE_INODES_DEFAULT) -- called at spawn.py:3330, before "
             "every workspace clone attempt"
         ),
         "line_anchors": [
             ("spawn.py", 735, "def _spawn_capacity_check"),
             ("spawn.py", 746, "shutil.disk_usage"),
             ("spawn.py", 751, "sys.exit("),
-            ("spawn.py", 3298, "_spawn_capacity_check(work)"),
+            ("spawn.py", 3330, "_spawn_capacity_check(work)"),
         ],
     },
 ]

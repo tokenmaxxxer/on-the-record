@@ -93,6 +93,8 @@ class SpawnOneArtifactSkillPairingTest(unittest.TestCase):
                                lambda root, exclude_issue=None: ([], True)), \
              mock.patch.object(spawn, "roster_register", spy_roster_register), \
              mock.patch.object(spawn, "ledger_write", lambda *a, **k: None), \
+             mock.patch.object(spawn, "_launch_cross_family_delivery",
+                               lambda *a, **k: None), \
              mock.patch.object(gh_rest, "fetch_issue",
                                lambda repo, issue: {"body": issue_body,
                                                      "title": "t",
