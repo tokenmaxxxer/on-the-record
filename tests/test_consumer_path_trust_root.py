@@ -104,8 +104,44 @@ def test_build_decoy_skill_root_drops_body(tmp_path, populated_skills_root):
     decoy_root = prepare_arms.build_decoy_skill_root("skill-a", real)
     decoy_md = decoy_root / "skill-a" / "SKILL.md"
     assert decoy_md.is_file()
-    assert decoy_md.read_text(encoding="utf-8") == "---\nname: skill-a\n---\n"
+    text = decoy_md.read_text(encoding="utf-8")
+    assert text.startswith("---\nname: skill-a\n")
+    assert "Real guidance body" not in text
     assert decoy_md.read_bytes() != real.read_bytes()
+
+
+def test_build_decoy_skill_root_drops_description_and_metadata(tmp_path):
+    """Round 8 mid-flight correction: a decoy that copies the real
+    front matter verbatim hands the off arm the description and
+    metadata fields, which are themselves most of what a rubric-scored
+    task measures. Only `name:` survives."""
+    root = tmp_path / "skills-corpus"
+    (root / "rich-skill").mkdir(parents=True)
+    real = root / "rich-skill" / "SKILL.md"
+    real.write_text(
+        "---\n"
+        "name: rich-skill\n"
+        "description: >-\n"
+        "  Use when a hypothesis needs its primary metric, numeric\n"
+        "  threshold, and decision rule fixed before data collection.\n"
+        "metadata:\n"
+        "  axis: hypothesis-preregistration\n"
+        "  rule_count_floor: 10\n"
+        "---\n"
+        "Body with the real guidance.\n",
+        encoding="utf-8",
+    )
+    decoy_root = prepare_arms.build_decoy_skill_root("rich-skill", real)
+    decoy_text = (decoy_root / "rich-skill" / "SKILL.md").read_text(
+        encoding="utf-8")
+    assert decoy_text.startswith("---\nname: rich-skill\n")
+    assert "metadata:" not in decoy_text
+    assert "rule_count_floor" not in decoy_text
+    assert "primary metric" not in decoy_text
+    assert "numeric" not in decoy_text
+    assert "threshold" not in decoy_text
+    assert "decision rule" not in decoy_text
+    assert decoy_text != real.read_text(encoding="utf-8")
 
 
 def test_build_decoy_skill_root_copies_real_policy_skills(
@@ -181,6 +217,49 @@ def test_arms_differ_only_in_manipulated_variable(populated_skills_root):
     assert manifest["dispatch"]["argv_identical_across_arms"] is True
     assert set(manifest["dispatch"]["env_keys_that_differ_by_arm"]) == {
         "HOME", manifest["skills_root_env_var"]}
+
+
+def test_on_arm_mounts_only_the_named_skill(populated_skills_root):
+    """Round 8 mid-flight correction: the on arm used to mount the
+    entire registry (352 files against the off arm's 1). R007 asks
+    what ONE skill is worth, so the on arm must mount exactly
+    `skill_name` -- not `skill-b`, which is also present in the real
+    corpus but not under test."""
+    manifest, created_dirs = prepare_arms.build_manifest(
+        populated_skills_root, "skill-a", "sonnet", "test-operator")
+    on = [a for a in manifest["arms"] if a["arm"] == "on"][0]
+    off = [a for a in manifest["arms"] if a["arm"] == "off"][0]
+    prepare_arms._cleanup(created_dirs)
+
+    on_paths = {f["path"] for f in on["skill_files"]}
+    assert on_paths == {"skill-a/SKILL.md"}
+    assert "skill-b/SKILL.md" not in on_paths
+
+    # The exactly-one-difference property the issue asks for: same file
+    # count on both sides, differing only in skill-a/SKILL.md's content.
+    assert len(on["skill_files"]) == len(off["skill_files"])
+
+
+def test_build_manifest_rejects_unequal_file_counts(
+        tmp_path, populated_skills_root, monkeypatch):
+    """If a future change makes the arms' file sets diverge again,
+    build_manifest must refuse rather than silently emit a manifest a
+    scored result cannot be attributed to."""
+    real_off = prepare_arms.make_off_arm
+
+    def _bloated_off_arm(home, skills_root_on, skill_name):
+        arm = real_off(home, skills_root_on, skill_name)
+        extra = Path(arm["skills_root"]) / "extra-file.md"
+        extra.write_text("unrelated extra file\n", encoding="utf-8")
+        arm["skill_files"] = prepare_arms.resolve_skill_files(
+            Path(arm["skills_root"]))
+        return arm
+
+    monkeypatch.setattr(prepare_arms, "make_off_arm", _bloated_off_arm)
+    with pytest.raises(prepare_arms.ArmPreparationError,
+                        match="different file counts"):
+        prepare_arms.build_manifest(
+            populated_skills_root, "skill-a", "sonnet", "test-operator")
 
 
 def test_on_arm_rejects_empty_corpus(tmp_path):
