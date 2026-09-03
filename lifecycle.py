@@ -828,11 +828,124 @@ def _workspace_in_progress_merge(w: Path) -> bool:
         "BISECT_LOG"))
 
 
+_HARNESS_SCAFFOLDING_PREFIX = ".on-the-record/"
+
+
+def _is_harness_scaffolding_path(rel: str) -> bool:
+    """이슈 #3266: 세션이 시작할 때 하니스 자신이 심는 `.on-the-record/`
+    아래 설정 파일(`role.json`, `model-routing.json`, `directive/*.md` 등)은
+    어느 세션도 실제로 작성한 작업물이 아니다. 대부분의 워크스페이스는
+    이미 이 경로를 `.gitignore`나 `.git/info/exclude`로 걸러 여기까지
+    오지도 않지만(이 저장소에서 실측: 27개 살아있는 워크스페이스 중 이
+    경로가 실제로 남아있던 곳은 0개), 이슈가 관측한 macOS 머신처럼 그
+    설정이 없는 워크스페이스에서도 같은 답이 나와야 한다 — 경로 자체가
+    하니스 소유라는 사실은 어느 워크스페이스에서나 똑같다."""
+    return rel == ".on-the-record" or rel.startswith(_HARNESS_SCAFFOLDING_PREFIX)
+
+
+_REPORT_STUB_PATH_RE = re.compile(r"^docs/issue-\d+/reports/.*\.md$")
+
+
+_STRUCTURAL_HEADING_RE = re.compile(r"^#{1,2}(?:\s.*)?$")
+
+
+def _report_stub_has_no_content(w: Path, rel: str) -> bool:
+    """이슈 #3266: `docs/issue-<n>/reports/**/*.md` 파일에서 frontmatter,
+    구조용 마크다운 헤딩(레코드 스켈레톤 자신의 `#`/`##` 제목 줄 — 예:
+    `## What was done`), HTML 주석(`<!-- fill: ... -->`), 스켈레톤 기본값
+    `None.` 을 걷어내고도 실질 텍스트가 하나도 안 남으면 True — 세션이
+    시작할 때 만들고 한 글자도 못 채운 채 죽은 리포트 스텁의 모양 그대로다
+    (`~/.tokenmaxxxer/salvage-20260903` 코퍼스로 검증: 리포트 성격 파일
+    151개 중 131개가 이 모양이었고, 나머지 20개 — consult-log 한 줄짜리까지
+    포함 — 는 전부 이 필터를 통과하는 실질 프로즈가 남았다).
+
+    이슈 #3266 라운드 2 (PR #3272 독립검증): `#` 로 시작하는 줄을 전부
+    걷어내면 헤딩 텍스트 자체에 실제 소견이 실린 줄(`### Root cause: ...`)
+    이나 헤딩 문법조차 아닌 bare `#`-접두 줄(`#3266 was the root cause,
+    ...`)까지 같이 사라져 실제 내용을 스텁으로 오판했다 — 레코드 스켈레톤은
+    항상 레벨 1(문서 제목)·레벨 2(섹션 제목)만 구조용으로 쓰고 그 텍스트는
+    항상 일반 제목이다, 레벨 3 이상이나 `#` 뒤에 공백 없이 바로 글자가
+    오는 줄은 스켈레톤 구조가 아니라 본문이므로 걷어내지 않는다.
+
+    `_classify_workspace_completion()`(위, 이슈 #1982)의 "frontmatter 만
+    걷어내고 strip() 이 truthy 면 finished"보다 훨씬 엄격하게 걷어낸다 —
+    그 함수는 이어서 할 작업 안내 문구를 붙일지만 결정해 과대 판정의
+    대가가 작지만(스텁을 finished 로 오판해도 다음 세션이 손해볼 게
+    없다), 여기서는 삭제 여부를 가르는 판정이라 헤딩/주석/기본값까지
+    걷어내지 않으면 모든 스텁이 "내용 있음"으로 남아 이 이슈가 고치려는
+    문제 그대로 재현된다."""
+    if not _REPORT_STUB_PATH_RE.match(rel):
+        return False
+    path = w / rel
+    try:
+        st = path.lstat()
+    except OSError:
+        return False
+    if stat.S_ISLNK(st.st_mode):
+        # 이슈 #3266 라운드 2 (PR #3271 독립검증): 워크스페이스 밖을
+        # 가리키는 심볼릭 링크는 그 바깥 파일의 내용이 아니라 "이
+        # 워크스페이스 자신의 파일에 내용이 있는가"를 물어야 한다 —
+        # 컨테인먼트를 먼저 확인하지 않으면 외부 타겟이 우연히 스텁
+        # 모양이라는 이유만으로 워크스페이스 자신의 파일을 삭제 대상으로
+        # 오판한다.
+        try:
+            target = path.resolve(strict=True)
+        except OSError:
+            return False
+        try:
+            target.relative_to(w.resolve(strict=True))
+        except ValueError:
+            return False
+        try:
+            st = target.stat()
+        except OSError:
+            return False
+    if not stat.S_ISREG(st.st_mode):
+        # 이슈 #3266 라운드 2 (PR #3271 독립검증): FIFO 는 OSError 를
+        # 던지지 않고 read_text() 를 무기한 블록시킨다 -- 열기 전에
+        # 정규 파일인지부터 확인해 그 read 자체를 시도하지 않는다.
+        return False
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return False
+    if text.startswith("---"):
+        end = text.find("\n---", 3)
+        if end != -1:
+            nl = text.find("\n", end + 1)
+            text = text[nl + 1:] if nl != -1 else ""
+    text = re.sub(r"<!--.*?-->", "", text, flags=re.DOTALL)
+    for line in text.splitlines():
+        s = line.strip()
+        if not s or s == "None.":
+            continue
+        if _STRUCTURAL_HEADING_RE.match(s):
+            continue
+        return False
+    return True
+
+
+def _is_reclaimable_untracked_noise(w: Path, rel_bytes: bytes) -> bool:
+    """이슈 #3266: untracked-and-not-gitignored 파일 하나가 그래도 "잃을 게
+    없는" 두 모양(하니스 스캐폴딩, 내용 없는 리포트 스텁) 중 하나인지."""
+    rel = os.fsdecode(rel_bytes)
+    return (_is_harness_scaffolding_path(rel)
+            or _report_stub_has_no_content(w, rel))
+
+
 def _workspace_untracked_not_ignored(w: Path) -> list[bytes]:
     """gitignore 에 안 걸리는 untracked 파일 목록(이슈 #2960: basename
     화이트리스트 대신 `git check-ignore` 로 판정 — 그 리포 자신의
     `.gitignore` 가 harness noise 든 빌드 산출물이든 이미 아는 파일을
-    걸러내고, 모르는 새 파일은 안전 기본값대로 "잃을 게 있다"로 남는다)."""
+    걸러내고, 모르는 새 파일은 안전 기본값대로 "잃을 게 있다"로 남는다).
+
+    이슈 #3266: gitignore 를 통과한 뒤에도 하니스 스캐폴딩이나 내용 없는
+    리포트 스텁(`_is_reclaimable_untracked_noise()`)이면 "잃을 게 있다"
+    목록에서 뺀다 — 크래시한 세션이 시작 때 만들고 절대 못 채우는 바로 그
+    모양이라, 이 둘을 빼지 않으면 정리가 가장 필요한 워크스페이스일수록
+    지우면 안 되는 것으로 영원히 오판된다. 내용이 조금이라도 있는 리포트,
+    다른 untracked 파일(예: 실험 산출물 JSON)은 이 필터를 안 타고 그대로
+    "잃을 게 있다"로 남는다."""
     listed = subprocess.run(
         ["git", "-C", str(w), "ls-files", "-z", "--others"],
         capture_output=True).stdout
@@ -843,7 +956,9 @@ def _workspace_untracked_not_ignored(w: Path) -> list[bytes]:
         ["git", "-C", str(w), "check-ignore", "-z", "--stdin"],
         input=b"\0".join(untracked), capture_output=True)
     ignored = {p for p in checked.stdout.split(b"\0") if p}
-    return [p for p in untracked if p not in ignored]
+    return [p for p in untracked
+            if p not in ignored
+            and not _sp._is_reclaimable_untracked_noise(w, p)]
 
 
 def _workspace_clean_state(
