@@ -139,14 +139,30 @@ derived: `git diff --stat scripts/consumer-path/prepare_arms.py` (pre-fix)
 
 ## Next steps
 
-Commit this fix and record locally (push/PR are blocked by the same
-`gh` failure cited above — completion-and-landing guidance is to
-checkpoint-commit rather than leave it uncommitted). A follow-up session
-should re-run `gh auth status` and `gh issue view 3245`; once both
-succeed, push this branch, open the PR, and re-evaluate the
-`prepare_arms.py` change against the issue's actual text. `loop_state:
-blocked` is not terminal for this record kind — a follow-up session
-should update it once the issue can actually be read and the PR opened.
+The commit above was pushed successfully — `git push` uses a separate
+credential path from the `gh` CLI token, so it was not blocked by the
+`gh auth status` failure cited above.
+
+derived: `git push -u origin issue-3245/experiment-trust+silent-failure-audit+implementation-blueprint-3a15a595`
+```
+To https://github.com/tokenmaxxxer/on-the-record.git
+   bc4696f0..19dd501c  issue-3245/experiment-trust+silent-failure-audit+implementation-blueprint-3a15a595 -> issue-3245/experiment-trust+silent-failure-audit+implementation-blueprint-3a15a595
+```
+
+Opening the PR is still blocked: `gh pr view` failed with the same
+rate-limit error as `gh issue view 3245` above.
+
+derived: `gh pr view --json url,number,state`
+```
+GraphQL: API rate limit already exceeded for user ID 87398933.
+```
+
+A follow-up session should re-check `gh api rate_limit --jq .resources`
+and, once it clears, run `gh pr create` for this already-pushed branch,
+then read issue #3245 and re-evaluate the `prepare_arms.py` change
+against its actual text. `loop_state: blocked` is not terminal for this
+record kind — update it once the PR is open and the issue has been
+read.
 
 skill-verdict: work-in-english — not-applicable: this session's only
 written artifacts (this record, the code fix, commit messages) were
