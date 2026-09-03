@@ -58,13 +58,20 @@ _TEST_PATH_RE = re.compile(
 # identity sites (docs/issue-2924/reports/silent-failure-audit+
 # refactoring-legacy-seam-selection-140f0858.md). board.py's /proc mention
 # is prose about a mechanism that does not exist yet, not a live call.
+# Two reviewed /proc sites, for different reasons, both degrading visibly
+# rather than silently:
+#
 # `monitor_ownership.py` (issue #3293) reads /proc for the start-tick half
-# of a monitor's owner token. Where there is no /proc the token degrades
-# to `<pid>.nostat` and every stop attempt is refused with that named
-# reason rather than signalling a pid it cannot prove identity for --
-# a runtime-visible degradation, not a silent one. Stage 3 owes macOS a
-# working stop path built on something other than the start tick.
-KNOWN_PROC_SITES = {"roster.py", "watchdog.py", "monitor_ownership.py"}
+# of a monitor's owner token, and falls back to `ps -p <pid> -o lstart=`
+# where there is no /proc, so macOS gets the same pid-reuse protection
+# rather than a token that degrades to the pid alone.
+#
+# `amendment_channel.py` (issue #3281) walks process ancestry; without
+# /proc it emits a runtime-visible NoProcOnPlatform notice -- not just a
+# docstring -- before falling back to None (see `_report_write_result()`
+# and `record_amendment_from_response()`).
+KNOWN_PROC_SITES = {"roster.py", "watchdog.py", "monitor_ownership.py",
+                    "amendment_channel.py"}
 
 _FLOCK_INVOKE_RE = re.compile(r"(^|[^\w#])flock(\s|$)")
 _FLOCK_GUARD_RE = re.compile(r"command\s+-v\s+flock")

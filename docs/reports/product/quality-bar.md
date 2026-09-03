@@ -402,3 +402,21 @@ Append-only, newest entry last.
   and the resulting deviation-log entry at
   docs/issue-3186/reports/adversarial-review+diagnose-first+silent-failure-audit-ced10aec/deviation-log/20260902T162532067515-686232cebf7aac13.md.
   silent-failure-audit-b3d43cb1.md, open finding 2, 2026-09-02.
+
+- 2026-09-03: a check going red does not get dismissed as "pre-existing
+  and unrelated" without first reading what it actually says — the
+  spawning operator reported having done exactly that, in eight commit
+  messages in one day, against a macOS-compat check that was reporting
+  three real violations (two bash-3.2-unsafe array expansions, one
+  unreviewed `/proc` site). The corollary the same task insisted on:
+  making a static check go green is not the same claim as "the platform
+  it checks for actually works" — a check can be necessary and nowhere
+  near sufficient at once, and a record that reports the green run must
+  say so explicitly rather than let silence imply the stronger claim.
+  Both halves generalize past this one issue: an ignored-because-labeled
+  check and an overclaimed green check are the same failure shape (an
+  absent signal and a quiet system look identical) from opposite ends —
+  distrust-by-default on a persistently red check, and no-overclaim on a
+  newly green one. Source: issue #3281 spawning-prompt body and task
+  instructions, this session, delivered in PR #3282 and
+  docs/issue-3281/reports/silent-failure-audit+test-derivation-e073366a.md.

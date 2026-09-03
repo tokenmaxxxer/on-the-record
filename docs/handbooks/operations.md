@@ -687,6 +687,17 @@ reachable through today's `https://` `$REPO_URL` but closed at the
 mechanism regardless — see `skills.py`'s `_skill_repo_git_env()`
 docstring for the same reasoning applied to its own call site).
 
+**A seventh trap, same subsystem (issue #3281):** both `env
+"${UNSET_ARGS[@]}"` invocations expanded a possibly-empty array under
+`set -u` with no bash-3.2-safe guard. bash ≥4.4 (this project's own dev/CI
+shell) tolerates an empty array expanded that way; bash 3.2 (what macOS
+ships as `/bin/bash`) treats it as an unbound variable and aborts the
+whole `run_pair.sh` invocation before the paired run even starts. Both
+sites are now `env ${UNSET_ARGS[@]+"${UNSET_ARGS[@]}"}` — this project's
+standing `on-the-record/checks/macos_bash32_compat.py` check now flags
+any future re-introduction of the unguarded form anywhere in a live `.sh`
+file, not just here.
+
 ### Package-registry access (issue #38)
 
 A fresh sandboxed workspace has no package cache, so `go build`/`npm

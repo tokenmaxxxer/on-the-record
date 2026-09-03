@@ -93,7 +93,7 @@ run_arm() {
   if [ "$arm" = "skills-on" ]; then
     (
       cd "$ws"
-      timeout 600 env "${UNSET_ARGS[@]}" claude -p "$PROMPT" \
+      timeout 600 env ${UNSET_ARGS[@]+"${UNSET_ARGS[@]}"} claude -p "$PROMPT" \
         --model "$MODEL" \
         --permission-mode bypassPermissions \
         --setting-sources project,local \
@@ -106,7 +106,7 @@ run_arm() {
   else
     (
       cd "$ws"
-      timeout 600 env "${UNSET_ARGS[@]}" claude -p "$PROMPT" \
+      timeout 600 env ${UNSET_ARGS[@]+"${UNSET_ARGS[@]}"} claude -p "$PROMPT" \
         --model "$MODEL" \
         --permission-mode bypassPermissions \
         --setting-sources project,local \
