@@ -167,3 +167,85 @@ class WakeContractIsInjectedTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class WorkspaceEvidenceTest(unittest.TestCase):
+    """Log growth alone could not tell breathing from advancing. The
+    workspace is the signal that settles it -- but only once the harness's
+    own writes are excluded, which is why `_confirmed_progress_seen()`
+    refused mtime outright rather than filtering it."""
+
+    def setUp(self):
+        self._t = tempfile.TemporaryDirectory()
+        self.tmp = Path(self._t.name)
+        self.addCleanup(self._t.cleanup)
+        self.work = self.tmp / "workspace"
+        (self.work / "docs" / "issue-1" / "reports").mkdir(parents=True)
+
+    def _touch(self, rel: str, when: float):
+        p = self.work / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text("x", encoding="utf-8")
+        import os
+        os.utime(p, (when, when))
+
+    def test_a_new_report_counts_as_a_change(self):
+        import time as _t
+        base = _t.time() - 100
+        self._touch("docs/issue-1/reports/old.md", base - 50)
+        self._touch("docs/issue-1/reports/new.md", base + 50)
+        self.assertIs(session_progress.workspace_touched_since(self.work, base), True)
+
+    def test_harness_scaffolding_alone_is_not_a_change(self):
+        """Every live session gets `.on-the-record/` stamped on its own
+        schedule; counting it would make idleness invisible."""
+        import time as _t
+        base = _t.time() - 100
+        self._touch("docs/issue-1/reports/old.md", base - 50)
+        self._touch(".on-the-record/directive/known-paths.md", base + 50)
+        self.assertIs(session_progress.workspace_touched_since(self.work, base), False)
+
+    def test_consult_log_alone_is_not_a_change(self):
+        import time as _t
+        base = _t.time() - 100
+        self._touch("docs/issue-1/reports/old.md", base - 50)
+        self._touch("docs/issue-1/reports/consult-log/trace.md", base + 50)
+        self.assertIs(session_progress.workspace_touched_since(self.work, base), False)
+
+    def test_no_baseline_is_unknown_not_unchanged(self):
+        self._touch("docs/issue-1/reports/a.md", 1.0)
+        self.assertIsNone(session_progress.workspace_touched_since(self.work, None))
+
+    def test_a_missing_workspace_is_unknown(self):
+        self.assertIsNone(
+            session_progress.workspace_touched_since(self.tmp / "gone", 1.0))
+
+    def test_an_empty_workspace_is_unknown_not_unchanged(self):
+        empty = self.tmp / "empty"
+        empty.mkdir()
+        import time as _t
+        self.assertIsNone(session_progress.workspace_touched_since(empty, _t.time()))
+
+    def test_an_unrecognised_command_with_an_unchanged_workspace_is_waiting(self):
+        """Together the two signals decide what neither could alone."""
+        log = _log(self.tmp, [("Bash", "python3 scripts/whatever.py")])
+        self.assertEqual(
+            session_progress.classify(log, workspace_changed=False),
+            session_progress.WAITING)
+
+    def test_an_unrecognised_command_with_no_workspace_answer_stays_unknown(self):
+        log = _log(self.tmp, [("Bash", "python3 scripts/whatever.py")])
+        self.assertEqual(
+            session_progress.classify(log, workspace_changed=None),
+            session_progress.UNKNOWN)
+
+
+class WatchdogFeedsAllThreeSignalsTest(unittest.TestCase):
+    def test_the_wrapper_takes_key_entry_and_state(self):
+        src = (ROOT / "watchdog.py").read_text(encoding="utf-8")
+        self.assertIn("def _session_progress_state(key: str, entry: dict, state: dict | None)", src)
+        self.assertIn("_session_progress_state(key, entry, state)", src)
+
+    def test_the_wrapper_consults_the_workspace(self):
+        src = (ROOT / "watchdog.py").read_text(encoding="utf-8")
+        self.assertIn("workspace_touched_since", src)

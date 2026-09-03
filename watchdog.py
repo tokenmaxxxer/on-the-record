@@ -214,8 +214,20 @@ def _pr_state_from_index(pr_index: dict, branch: str) -> int | None:
     return pr.get("number") if pr.get("state") in ("OPEN", "MERGED") else None
 
 
-def _session_progress_state(entry: dict) -> str:
+def _session_progress_state(key: str, entry: dict, state: dict | None) -> str:
     """`gates/session_progress.py` wrapper (issue #3275).
+
+    Feeds the classifier all three signals rather than one. Log growth alone
+    says a session is breathing; it took the workspace and the tool history
+    to tell breathing from advancing:
+
+    - the workspace, compared against the timestamp of the last tick that
+      looked at it (`state`), with the harness's own writes excluded so a
+      live session does not look busy on `.on-the-record/` churn -- that
+      exclusion is what makes mtime usable here despite
+      `_confirmed_progress_seen()`'s reasons for refusing it outright;
+    - the recent tool calls, so a session polling `ps` in a loop is WAITING;
+    - and, when the workspace answer is unavailable, neither is guessed.
 
     Lazy-imported the same way every other root -> gates crossing in this
     file is (`gates/spawn_on_pr.py` imports `spawn` at its own top level, so
@@ -229,9 +241,21 @@ def _session_progress_state(entry: dict) -> str:
     except Exception:
         return "UNKNOWN"
     log = entry.get("log")
+    work = entry.get("work")
+    changed = None
+    if state is not None and work:
+        seen_key = f"{key}:last_workspace_scan_ts"
+        prev_ts = state.get(seen_key)
+        state[seen_key] = time.time()
+        if prev_ts is not None:
+            try:
+                changed = session_progress.workspace_touched_since(
+                    Path(work), prev_ts)
+            except Exception:
+                changed = None
     try:
         return session_progress.classify(Path(log) if log else None,
-                                          workspace_changed=None)
+                                          workspace_changed=changed)
     except Exception:
         return "UNKNOWN"
 
@@ -623,7 +647,7 @@ def diagnose_health(key: str, entry: dict, root: Path = ROOT,
         # reported and never counted as healthy progress. It answers
         # UNKNOWN rather than WAITING whenever it cannot prove idleness,
         # so a working session is never mislabelled idle.
-        progress = _session_progress_state(entry)
+        progress = _session_progress_state(key, entry, state)
         if progress == "WAITING":
             return _diagnosis({"state": "WAITING-ON-DISPATCH",
                     "next_action": "none",

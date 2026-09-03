@@ -145,6 +145,57 @@ def recent_tool_calls(log_path: Path | None, limit: int = TAIL_TOOL_CALLS
     return calls[-limit:]
 
 
+# Files the harness itself writes into a workspace. A change confined to
+# these is bookkeeping, not the session getting anywhere, so they are
+# excluded before "did the workspace change" is answered.
+_HARNESS_WRITTEN = (
+    "/.on-the-record/",
+    "/.git/",
+    "/runs/",
+    "/reports/consult-log/",
+)
+
+
+def workspace_touched_since(work: Path | None, since_ts: float | None,
+                             now: float | None = None) -> bool | None:
+    """Did this workspace gain or change real content since `since_ts`?
+
+    Returns None -- never False -- when the question cannot be answered: no
+    path, no baseline to compare against, or the tree could not be walked.
+    The caller must not read that as "nothing happened".
+
+    Content means files the *session* wrote. `_HARNESS_WRITTEN` paths are
+    skipped because the harness stamps them on its own schedule; counting
+    them would make every live session look like it is advancing. That is
+    the concern `_confirmed_progress_seen()` raised about mtime and why it
+    refused to use it at all -- excluding the harness's own writes is what
+    makes the signal usable rather than discarding it.
+    """
+    if work is None or since_ts is None:
+        return None
+    root = Path(work)
+    if not root.is_dir():
+        return None
+    cutoff = since_ts
+    seen_any = False
+    try:
+        for p in root.rglob("*"):
+            marker = "/" + str(p).replace(str(root), "").lstrip("/")
+            if any(seg in marker for seg in _HARNESS_WRITTEN):
+                continue
+            try:
+                if not p.is_file():
+                    continue
+                seen_any = True
+                if p.stat().st_mtime > cutoff:
+                    return True
+            except OSError:
+                continue
+    except OSError:
+        return None
+    return False if seen_any else None
+
+
 def classify(log_path: Path | None, workspace_changed: bool | None) -> str:
     """ADVANCING / WAITING / UNKNOWN for one session.
 
@@ -156,6 +207,10 @@ def classify(log_path: Path | None, workspace_changed: bool | None) -> str:
         return ADVANCING
     calls = recent_tool_calls(log_path)
     if not calls:
+        # No readable tool history. A workspace that demonstrably did not
+        # change is still evidence of not advancing, but with nothing to say
+        # whether the session is waiting or wedged, UNKNOWN is the honest
+        # answer either way.
         return UNKNOWN
     for name, command in calls:
         if name in _MUTATING_TOOLS:
@@ -166,7 +221,12 @@ def classify(log_path: Path | None, workspace_changed: bool | None) -> str:
             if _looks_observe_only(command):
                 continue
             # A Bash call we cannot prove is read-only may well have done
-            # work; refuse to call this session idle on it.
+            # work. When the workspace independently says nothing changed,
+            # that settles it -- an unrecognised command that produced no
+            # content is still not progress. Without that evidence
+            # (`workspace_changed is None`) refuse to call the session idle.
+            if workspace_changed is False:
+                continue
             return UNKNOWN
         # Any other tool (Task, Monitor, web fetches, MCP calls...) is not
         # something this module can classify. Say so.
