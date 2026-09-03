@@ -16,6 +16,7 @@ the other place this repo already runs checks automatically.
 """
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -126,6 +127,115 @@ def test_empty_state_refuses_a_clean_pass():
     r = _run(str(sf._FIXTURES / "no_subprocess"))
     assert r.returncode != 0
     assert "no subprocess call sites" in r.stdout
+
+
+# ---------------------------------------------------------------------
+# Round-2 reliability fixes (PR #3237 findings): a null byte and a
+# permission-denied directory used to crash/silently-empty the scan --
+# the exact silent-failure shape this lint exists to catch, reproduced
+# inside the tool itself.
+# ---------------------------------------------------------------------
+
+def test_null_byte_is_reported_not_a_crash(tmp_path):
+    bad = tmp_path / "nullbyte.py"
+    bad.write_bytes(b"import subprocess\nsubprocess.run(['ls'])\x00\n")
+    r = sf.scan_file(bad)
+    assert r.error is not None
+    assert not r.findings
+
+
+def test_null_byte_sibling_finding_survives_in_a_multi_target_scan(tmp_path):
+    bad = tmp_path / "nullbyte.py"
+    bad.write_bytes(b"import subprocess\nsubprocess.run(['ls'])\x00\n")
+    ok = tmp_path / "sibling.py"
+    ok.write_text("import subprocess\nsubprocess.run(['ls'])\n", encoding="utf-8")
+    summary = sf.scan_targets([str(bad), str(ok)])
+    assert any("cannot parse" in err for _, err in summary.errors)
+    assert summary.findings, "the sibling target's own findings must survive"
+
+
+def test_permission_denied_directory_is_reported_not_treated_as_empty(tmp_path):
+    if hasattr(os, "geteuid") and os.geteuid() == 0:
+        import pytest
+        pytest.skip("root bypasses directory permission bits")
+    locked = tmp_path / "locked"
+    locked.mkdir()
+    (locked / "a.py").write_text("import subprocess\n", encoding="utf-8")
+    os.chmod(locked, 0o000)
+    try:
+        summary = sf.scan_targets([str(tmp_path)])
+    finally:
+        os.chmod(locked, 0o755)
+    assert summary.errors, "a permission-denied subdirectory must be reported"
+    assert any("cannot list directory" in err for _, err in summary.errors)
+
+
+def test_permission_denied_directory_cli_exits_nonzero_not_clean_pass(tmp_path):
+    if hasattr(os, "geteuid") and os.geteuid() == 0:
+        import pytest
+        pytest.skip("root bypasses directory permission bits")
+    locked = tmp_path / "locked"
+    locked.mkdir()
+    os.chmod(locked, 0o000)
+    try:
+        r = _run(str(tmp_path))
+    finally:
+        os.chmod(locked, 0o755)
+    assert r.returncode != 0
+    assert "cannot list directory" in r.stdout
+    # must not be mistaken for the genuinely-empty-target message -- the
+    # two are distinct failures and read differently.
+    assert "no .py files found" not in r.stdout
+
+
+def test_scan_continues_past_a_permission_denied_subdirectory(tmp_path):
+    if hasattr(os, "geteuid") and os.geteuid() == 0:
+        import pytest
+        pytest.skip("root bypasses directory permission bits")
+    locked = tmp_path / "locked"
+    locked.mkdir()
+    (locked / "a.py").write_text("import subprocess\n", encoding="utf-8")
+    os.chmod(locked, 0o000)
+    readable = tmp_path / "readable.py"
+    readable.write_text("import subprocess\nsubprocess.run(['ls'])\n", encoding="utf-8")
+    try:
+        summary = sf.scan_targets([str(tmp_path)])
+    finally:
+        os.chmod(locked, 0o755)
+    assert summary.errors
+    assert summary.findings, "the readable sibling file must still be scanned"
+
+
+# ---------------------------------------------------------------------
+# Round-2 fixture correction: site7's before-fixture used to reconstruct
+# a different, already-fixed bug (round 5's .search()-vs-.fullmatch())
+# instead of the round-7 defect issue #3228 actually cites (fullmatch
+# against a json.dumps()-wrapped real Bash tool_response dict never
+# matches). It is now sourced verbatim from `git show f699f5c6^:...`.
+# ---------------------------------------------------------------------
+
+def test_site7_before_fixture_matches_real_pre_round7_history():
+    real = subprocess.run(
+        ["git", "show", "f699f5c6^:on-the-record/hooks/hook_input.py"],
+        cwd=REPO_ROOT, capture_output=True, text=True, timeout=30)
+    if real.returncode != 0:
+        import pytest
+        pytest.skip("f699f5c6^ not reachable in this checkout's git history")
+    fixture_text = (sf._FIXTURES / "history_before"
+                     / "site7_amendment_channel_fixture.py").read_text(encoding="utf-8")
+    # the real pre-round-7 defect's own load-bearing line: a dict
+    # tool_response is coerced via json.dumps(), not read through its own
+    # stdout field -- the fixture must reproduce that exact coercion, not
+    # a differently-shaped bug.
+    assert "json.dumps(raw)" in real.stdout
+    assert "json.dumps" in fixture_text
+    assert ".fullmatch(" in fixture_text
+    # the fixture's own CODE (not its docstring, which legitimately
+    # discusses round 5's .search()-vs-fullmatch() history in prose)
+    # must not itself call .search() -- that would reproduce the wrong,
+    # already-fixed defect.
+    code = fixture_text.split('"""', 2)[-1]
+    assert ".search(" not in code
 
 
 # ---------------------------------------------------------------------
