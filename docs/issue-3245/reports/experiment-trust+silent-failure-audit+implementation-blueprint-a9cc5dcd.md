@@ -131,12 +131,22 @@ derived: `git log --oneline -1 5bf676422d7680a81388d9924c8185b4fb707a23` — res
 
 ## Next steps
 
-Attempt `git push` after this commit. If it fails on the same
-invalid-token auth as `gh`, the commit still stands on this branch for an
-external relay or a future session with restored `gh` auth to push and
-open the PR. `loop_state` moves to `landed` once the push and a PR (or an
-`Advances #3245`-trailer PR, since this session did not run the pair
-dispatch through to a scored result.json) both succeed; until then it
-stays `committing`.
+derived: `git push -u origin issue-3245/experiment-trust+silent-failure-audit+implementation-blueprint-a9cc5dcd` — result:
+```
+def3b886..e20781e0  issue-3245/experiment-trust+silent-failure-audit+implementation-blueprint-a9cc5dcd -> issue-3245/experiment-trust+silent-failure-audit+implementation-blueprint-a9cc5dcd
+```
+Push succeeded (git's own HTTPS auth to this remote is independent of
+`gh`'s token). `gh pr create` was then attempted and refused by this
+repo's own `pr-base-guard` pre-tool-use hook, fail-closed, because it
+could not run `gh repo view --json defaultBranchRef` under the same
+broken `gh` auth/rate-limit state recorded under `## Open findings`.
+
+An external relay or a future session with restored `gh` auth needs to
+open the PR (title "issue-3245: provision arm credentials in
+consumer-path launcher", body drafted at this session's own
+`/tmp/pr-body-3245-a9cc5dcd.md`, trailer `Advances #3245` since this
+session did not run the pair dispatch through to a scored result.json).
+`loop_state` moves to `landed` once that PR opens; until then it stays
+`committing`.
 
 other mounted skills: not triggered
