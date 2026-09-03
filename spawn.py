@@ -430,6 +430,7 @@ _local_skill_dirs = skills._local_skill_dirs
 _skill_source_roster_fields = skills._skill_source_roster_fields
 _skill_content_hash = skills._skill_content_hash
 _skill_identity_key = skills._skill_identity_key
+_skill_repo_git_env = skills._skill_repo_git_env
 _skill_repo_managed_root = skills._skill_repo_managed_root
 _skill_repo_root = skills._skill_repo_root
 _skill_repo_valid = skills._skill_repo_valid

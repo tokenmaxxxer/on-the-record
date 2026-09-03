@@ -50,6 +50,32 @@ def _skill_repo_valid(d: Path) -> bool:
     return any(p.is_dir() and not p.name.startswith(".") for p in d.iterdir())
 
 
+def _skill_repo_git_env() -> dict[str, str]:
+    """이슈 #3231 round-3 residual-risk fix: `_skill_repo_managed_root()`가
+    SessionStart 훅(`skill-corpus-bootstrap.sh` -> `spawn.py ensure-skills`)
+    에서 도는 clone/pull 두 `_run_net()` 호출에 얹을 env.
+
+    round-2 독립검증(PR #3247, `docs/issue-3231/reports/adversarial-review+
+    silent-failure-audit+test-depth-audit-88bb8a1f.md`)이 실제 pty +
+    자격증명을 요구하는 로컬 `401` 서버로 재현: env 없이 돌면 git 이
+    `Username for '...': ` 에서 그대로 블록한다 — `_run_net()`의
+    `timeout=CLONE_TIMEOUT`/`NETWORK_TIMEOUT` 이 결국은 막아 fail-closed
+    로 끝나지만(무한정 걸리지는 않는다), 그 사이 SessionStart 자체가 최대
+    180초 지연된다. 이 저장소의 다른 git 네트워크 호출 지점
+    (`plumbing.py:364-390` `_git_env()`, `relay.py`/`pipeline.py`가 이미
+    사용)이 정확히 이 위험에 쓰는 그 두 키를 그대로 재사용한다 — 새 관례를
+    만들지 않는다.
+
+    `_git_env()` 자신과 달리 `GH_TOKEN` 유무로 게이팅하지 않는다:
+    `_git_env()`는 push 권한이 필요한 오케스트레이터 자신의 fetch/push용이라
+    토큰이 없으면 `None`을 돌려 사용자의 다른 자격증명 경로(ssh-agent,
+    osxkeychain)를 막지 않으려 한다. 이 호출 지점은 익명 읽기 전용 clone/pull
+    (공개 레포 `skill-repository`, push 없음)이라 토큰이 있든 없든 대화형
+    프롬프트를 막아야 한다 — 게이팅하면 정확히 이 함수가 고치려는 그
+    (토큰 없는) 경우에 가드가 빠진다."""
+    return {**os.environ, "GIT_TERMINAL_PROMPT": "0", "GIT_ASKPASS": "true"}
+
+
 def _skill_repo_managed_root() -> Path | None:
     """관리 클론(이슈 #1789): env 도 형제 체크아웃도 없을 때 on-the-record 가
     직접 `https://github.com/tokenmaxxxer/skill-repository` 를 관리 영역에
@@ -82,7 +108,7 @@ def _skill_repo_managed_root() -> Path | None:
                 # already-valid corpus below, not crash the caller.
                 try:
                     _sp._run_net(["git", "-C", str(d), "pull", "-q", "--ff-only"],
-                             "[skill-repo] pull")
+                             "[skill-repo] pull", env=_sp._skill_repo_git_env())
                     _sp._mark_pulled(d)
                 except SystemExit as exc:
                     print(f"[skill-repo] pull failed: {exc}", file=sys.stderr)
@@ -108,7 +134,8 @@ def _skill_repo_managed_root() -> Path | None:
             print("[skill-repo] skill-repository 를 받는 중", file=sys.stderr)
             result = _sp._run_net(["git", "clone", "-q",
                      "https://github.com/tokenmaxxxer/skill-repository.git",
-                     str(tmp_dir)], "[skill-repo] clone", timeout=_sp.CLONE_TIMEOUT)
+                     str(tmp_dir)], "[skill-repo] clone", timeout=_sp.CLONE_TIMEOUT,
+                     env=_sp._skill_repo_git_env())
             # returncode 도 확인한다 -- 디렉터리 내용만 보면, 네트워크가 체크아웃
             # 도중(일부 skill 디렉터리는 이미 받아졌지만 전부는 아닌 시점)
             # 끊겨 git 이 스스로 0이 아닌 채 종료해도 "그 몇 개는 진짜 있으니

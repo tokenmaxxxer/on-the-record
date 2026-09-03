@@ -53,8 +53,8 @@ require, grouped by when the loop first needs it.
 | `git` CLI on PATH | `pipeline.py:798` shells out to `git remote get-url origin` during workspace bootstrap. | No — see "cannot be removed" below. |
 | `gh` CLI, authenticated | `plumbing.py:355` runs `gh auth token` to fetch the token spawned sessions use as `GH_TOKEN`. | No — see "cannot be removed" below. |
 | Git identity configured (`user.name`, `user.email`) | `board.py:83-86` runs `git commit` directly during `init --push`; an unset identity fails that commit. | No, but the error moved earlier — see "stays manual, with a better error" below. |
-| POSIX fork support | `spawn.py:4707` calls `os.fork()`/`os.setsid()` to detach each spawned role session (the same pattern also appears at `spawn.py:2705`, for an unrelated feature). | No — see "cannot be removed" below. |
-| Disk/inode headroom before a workspace clone | `spawn.py:734-767` (`_spawn_capacity_check`, called at `spawn.py:3297`) exits before cloning if free bytes or inodes fall below a threshold. | No — see "cannot be removed" below. |
+| POSIX fork support | `spawn.py:4708` calls `os.fork()`/`os.setsid()` to detach each spawned role session (the same pattern also appears at `spawn.py:2706`, for an unrelated feature). | No — see "cannot be removed" below. |
+| Disk/inode headroom before a workspace clone | `spawn.py:735-768` (`_spawn_capacity_check`, called at `spawn.py:3298`) exits before cloning if free bytes or inodes fall below a threshold. | No — see "cannot be removed" below. |
 
 ### Skill resolution (needed the first time `--skills` names a role)
 
@@ -180,7 +180,7 @@ mode improved.)
 - **Disk/inode headroom on the host.** Free bytes and free inodes are
   properties of the machine the session runs on. A plugin cannot
   create disk space; it can only refuse to clone before running out
-  (`spawn.py:734-767`), which is what it already does.
+  (`spawn.py:735-768`), which is what it already does.
 
 ## Reading this honestly
 
