@@ -175,7 +175,8 @@ def session_block(key: str, entry: dict, since_ts: float, state_verdict: str,
     return lines
 
 
-def idle_block(outstanding: dict) -> list[str]:
+def idle_block(outstanding: dict, unchecked: list[str] | None = None
+                ) -> list[str]:
     """What a tick carries when nothing is running.
 
     Never a "monitoring active" placeholder -- issue #1732 removed exactly
@@ -198,8 +199,22 @@ def idle_block(outstanding: dict) -> list[str]:
         more = len(items) - len(head)
         lines.append(f"    {label} ({len(items)}): {', '.join(head)}"
                      + (f" … +{more}" if more > 0 else ""))
+    for what in (unchecked or []):
+        lines.append(f"    could not check {what} -- outstanding work there "
+                     "is unknown, not absent")
     if not named:
-        lines.append("    nothing outstanding was found -- if that is right, "
-                     "the goal is done and this monitor can be stopped "
-                     "(spawn.py monitor-stop --owner <token>)")
+        if unchecked:
+            # Never the stop suggestion when a lookup failed. The directive
+            # reads "nothing outstanding was found" as permission to stop
+            # the monitor, and an un-run lookup that renders as a clean
+            # result is how a session gets told its work is done while a PR
+            # is sitting there waiting. Absence and a failed observation are
+            # different states.
+            lines.append("    nothing found among the sources that answered "
+                         "-- not a completion signal while any source above "
+                         "went unchecked")
+        else:
+            lines.append("    nothing outstanding was found -- if that is "
+                         "right, the goal is done and this monitor can be "
+                         "stopped (spawn.py monitor-stop --owner <token>)")
     return lines

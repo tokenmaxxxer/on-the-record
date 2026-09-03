@@ -136,6 +136,19 @@ class TheIdleTickStillSaysSomethingTest(unittest.TestCase):
         text = "\n".join(tick_payload.idle_block({}))
         self.assertIn("monitor-stop", text)
 
+    def test_an_unchecked_source_never_produces_a_stop_signal(self):
+        # A false "done" is the worst error this block can make: the
+        # directive reads it as permission to stop observing.
+        text = "\n".join(tick_payload.idle_block({}, ["the board"]))
+        self.assertNotIn("monitor-stop", text)
+        self.assertIn("unknown, not absent", text)
+
+    def test_a_pr_that_returned_this_tick_counts_as_outstanding(self):
+        text = "\n".join(tick_payload.idle_block(
+            {"PRs returned this tick": ["PR #38 (issue-32/s)"]}))
+        self.assertIn("PR #38", text)
+        self.assertNotIn("monitor-stop", text)
+
     def test_it_is_never_a_bare_monitoring_active_placeholder(self):
         # Issue #1732 removed exactly that line; it must not come back.
         text = "\n".join(tick_payload.idle_block({})).lower()

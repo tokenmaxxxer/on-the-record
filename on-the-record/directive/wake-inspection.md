@@ -79,7 +79,15 @@ ask from the user, arm poll-heartbeat again via the Monitor tool with
 unobservable, and unobserved is the worst state this system can be in --
 worse than noisy.
 
-Two states that look identical and are not: work is done, and nobody
-started the next thing. An idle tick that says `nothing outstanding was
-found` is the first; an idle tick that names outstanding items is the
-second. Only the first is a reason to stop.
+The tick never tells you the work is done. It cannot: checking the board
+and open issues on every 120s wake is too costly, so an idle tick says
+only that no session is running and lists what the cheap local sources
+knew -- a PR that returned this very tick, above all. It marks the
+sources it did not consult, because outstanding work there is unknown,
+not absent.
+
+So the stop decision is yours and it takes one look, not an inference
+from silence: when a tick reports no sessions running, check the board
+and the open issues yourself, and stop the monitor only if that check
+comes back empty. Two states look identical from silence alone and are
+not -- the work is done, and nobody started the next thing.

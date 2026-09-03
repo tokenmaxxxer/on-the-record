@@ -324,7 +324,8 @@ def _session_tick_lines(key: str, entry: dict, state: dict | None,
         return []
 
 
-def _idle_tick_lines(root: Path) -> list[str]:
+def _idle_tick_lines(root: Path, completions: list | None = None
+                      ) -> list[str]:
     """The outstanding-work summary an empty-roster tick carries (#3293).
 
     Reads only what is already cached for this tick -- no new `gh` calls, no
@@ -338,22 +339,26 @@ def _idle_tick_lines(root: Path) -> list[str]:
     except Exception:
         return []
     outstanding: dict[str, list] = {}
+    # Deliberately NOT the board's pr_index. That index is a branch list --
+    # 1842 entries on this checkout -- and calling branches "outstanding
+    # work" both floods the tick that repeats most and asserts something
+    # nobody checked. The cheap sources that actually answer the question
+    # are the roster (empty, or this function would not run) and the
+    # completions drained this same tick.
+    #
+    # A session that finished THIS tick left a PR behind that no board
+    # index knows about yet. Without it the idle tick immediately after a
+    # completion says "nothing outstanding" while a PR sits unmerged --
+    # observed live on PR #38.
+    unchecked = ["the board and open issues (not consulted -- too costly "
+                 "for a 120s tick)"]
+    returned = [f"PR #{c.get('pr_number')} ({c.get('key')})"
+                for c in (completions or [])
+                if isinstance(c, dict) and c.get("pr_number") is not None]
+    if returned:
+        outstanding["PRs returned this tick"] = returned
     try:
-        board, _meta = _board_read(root)
-    except Exception:
-        board = None
-    if isinstance(board, dict):
-        try:
-            # Named for what it actually is. These are pr_index branch
-            # keys, not open PRs -- calling them open PRs would have the
-            # idle tick assert something it never checked.
-            branches = [str(k) for k in (_board_pr_index(root) or {})]
-            if branches:
-                outstanding["board branches awaiting disposition"] = branches
-        except Exception:
-            pass
-    try:
-        return tick_payload.idle_block(outstanding)
+        return tick_payload.idle_block(outstanding, unchecked)
     except Exception:
         return []
 
@@ -2419,7 +2424,7 @@ def roster_watchdog(auto_respawn: bool = False, all_scope: bool = False,
         # cannot tell them apart from silence -- so name the open work, or
         # say plainly that none was found, which is itself the signal that
         # the monitor can be stopped.
-        for line in _idle_tick_lines(root):
+        for line in _idle_tick_lines(root, _pending_completions):
             print(line)
         if not anomaly_count:
             print("이상 신호 없음")
