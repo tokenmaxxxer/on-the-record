@@ -161,11 +161,19 @@ landed.
 
 ## Skill verdicts
 
-skill-verdict: diagnose-first — applied: invoked; used G2's
-verify-against-evidence axis to re-derive Question 3's own claim against
-the actual `amendment_channel.py` code rather than accepting either PR's
-framing, and to argue the issue-scoped-judge option from `spawn.py`'s own
-per-dispatch task-text evidence.
+skill-verdict: diagnose-first — applied: invoked; canonical: this
+session's own transcript, this round — `Skill(diagnose-first)` was called
+after the Stop hook's zero-invocation notice surfaced that the delivery
+above had applied this skill's reasoning without first loading it,
+correcting an invoke-before-apply gap (issue #2062). The loaded
+procedure's Stage 2 verify sub-step (confirm each candidate against the
+causal axes rather than trusting a prior framing) is what re-deriving
+Question 3's own claim against the actual `amendment_channel.py` code
+applied, and its Amdahl-style share check is what the issue-scoped-judge
+durable-single-point-of-failure argument applied. See
+`docs/issue-3230/reports/diagnose-first+implementation-blueprint+experiment-trust-a01a3586.md`
+(PR #3234's own branch; untracked on this branch) commit `8df5034c` for
+the identical correction made there.
 skill-verdict: implementation-blueprint — not-applicable: this round
 ships no multi-module code; the async wiring it evaluates is scoped as
 future design work, not implemented here.
@@ -173,3 +181,13 @@ skill-verdict: experiment-trust — not-applicable: no variant-comparison
 result is reported as a launch decision this round; the corrected
 cache/BM25 counts carried forward from PR #3240 are diagnostic
 re-derivations, not a fresh A/B result this round produced.
+
+other mounted skills: not triggered (`work-in-english`,
+`implementation-audit`, `verify-finding-record`,
+`defect-verification-independence-from-upstream-verdicts` — mounted per
+this session's task-text match, reviewed against this round's actual
+work: `work-in-english` was followed as a standing convention rather than
+invoked as a procedure; the other three govern a structurally-independent
+verification session's own reproduction/recording work, and this round is
+the coding-side correction responding to one, not a fresh verification
+attempt, so none of the three applied here).
