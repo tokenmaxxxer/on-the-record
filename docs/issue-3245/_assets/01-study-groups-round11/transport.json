@@ -1,0 +1,54 @@
+{
+  "captured_before_dispatch": true,
+  "argv_deviation_from_template": "off arm's --skills value carries the skill-repo: source qualifier (issue #2579); on arm's does not. See module docstring -- proven necessary on this machine, not a stub or a claim of byte-identical argv.",
+  "arms": {
+    "on": {
+      "argv": [
+        "python3",
+        "spawn.py",
+        "--skills",
+        "product-discovery-hypothesis-preregistration",
+        "We're thinking about adding a feature where students can be matched into small study groups by course and exam date. Before the team invests further: read what's already in docs/issue-1 (why we think a comprehension-gap problem is real for this audience) and docs/issue-5 (the one-pager for the job we've chosen to build for). Decide whether study-group matching serves that same job, a different job, or actually competes with it for the team's attention. Then write a short brief on whether this is worth building next: what would need to be true for it to succeed, how we'd know quickly if it's not working, and what would make us stop or change direction.",
+        "--issue",
+        "19",
+        "--model",
+        "sonnet",
+        "-C",
+        "/home/jwjung/study-companion"
+      ],
+      "env": {
+        "HOME": "/tmp/consumer-path-on-home-0pdcvzp3",
+        "MUSTER_SKILL_REPO": "/tmp/consumer-path-on-skills-tc_hq2lf"
+      }
+    },
+    "off": {
+      "argv": [
+        "python3",
+        "spawn.py",
+        "--skills",
+        "skill-repo:product-discovery-hypothesis-preregistration",
+        "We're thinking about adding a feature where students can be matched into small study groups by course and exam date. Before the team invests further: read what's already in docs/issue-1 (why we think a comprehension-gap problem is real for this audience) and docs/issue-5 (the one-pager for the job we've chosen to build for). Decide whether study-group matching serves that same job, a different job, or actually competes with it for the team's attention. Then write a short brief on whether this is worth building next: what would need to be true for it to succeed, how we'd know quickly if it's not working, and what would make us stop or change direction.",
+        "--issue",
+        "20",
+        "--model",
+        "sonnet",
+        "-C",
+        "/home/jwjung/study-companion"
+      ],
+      "env": {
+        "HOME": "/tmp/consumer-path-off-home-ly93r_28",
+        "MUSTER_SKILL_REPO": "/tmp/consumer-path-off-skills-decoy-1wzr433k"
+      }
+    }
+  },
+  "credential_seeding": {
+    "on": {
+      "seeded": true,
+      "source": "/home/jwjung/.claude/.credentials.json"
+    },
+    "off": {
+      "seeded": true,
+      "source": "/home/jwjung/.claude/.credentials.json"
+    }
+  }
+}

@@ -1,0 +1,148 @@
+{
+  "pair_id": "01-study-groups",
+  "h1": {
+    "directive_bytes_parity": {
+      "on_bytes": null,
+      "off_bytes": null,
+      "note": "secondary environment-parity diagnostic only -- does NOT gate H1 (construct-validity gap found by PR #3172: a skill delivered via the runtime Skill tool never touches this file set, so identical bytes here is expected and uninformative, not a manipulation-check failure)"
+    },
+    "on_invocation": {
+      "session_log": "/tmp/consumer-path-on-home-0pdcvzp3/.tokenmaxxxer/work/study-companion-issue-19-product-discovery-hypothesis-preregistration-e549b7b6.session.20260903T211501.3732492.log",
+      "mounted": [
+        "product-discovery-hypothesis-preregistration",
+        "work-in-english"
+      ],
+      "invoked": true,
+      "measured": true,
+      "mounted_but_not_invoked": false,
+      "invoked_but_not_mounted": false,
+      "reason": null
+    },
+    "off_invocation": {
+      "session_log": "/tmp/consumer-path-off-home-ly93r_28/.tokenmaxxxer/work/study-companion-issue-20-product-discovery-hypothesis-preregistration-5b4148f4.session.20260903T212346.3762971.log",
+      "mounted": [
+        "product-discovery-hypothesis-preregistration",
+        "work-in-english"
+      ],
+      "invoked": true,
+      "measured": true,
+      "mounted_but_not_invoked": false,
+      "invoked_but_not_mounted": false,
+      "reason": null
+    },
+    "content_manipulation": {
+      "content_ok": true,
+      "reason": null,
+      "on_sha256": "a917a97f528c2f63ec18413d85f9f33602ec1e4c081ab805219a51894e635109",
+      "off_sha256": "373175304ac47fcbf467c6b52fb3793b8ffcb11f68105a0a697adfbc2e787977",
+      "real_source_sha256": "a917a97f528c2f63ec18413d85f9f33602ec1e4c081ab805219a51894e635109",
+      "real_source_path": "/home/jwjung/skill-registry/skills/product-discovery-hypothesis-preregistration/SKILL.md",
+      "real_source_size_bytes": 8458,
+      "off_size_bytes": 166
+    },
+    "differs": true,
+    "reason": null
+  },
+  "h1_manipulation_ok": true,
+  "excluded_from_h2": false,
+  "exclusion_reason": null,
+  "h2": {
+    "scrub_replacement_counts": {
+      "skills-on": 6,
+      "skills-off": 12
+    },
+    "scored_on_scrubbed_text": {
+      "document_1_actual_arm": "skills-on",
+      "document_2_actual_arm": "skills-off",
+      "verdict": {
+        "document_1_score": 8,
+        "document_2_score": 6,
+        "verdict": "document_1",
+        "reasoning": "Both give a clear kill-for-now call with named conditions and stop rules, but Document 1's decision is more genuinely open and falsifiable: it pre-registers a specific probe (opt-in rate, exact baseline, n\u224830, 4-week window, statistical + practical thresholds) that could concretely fail or pass, plus separate capacity/support guardrails. Document 2's 'success conditions' and signals (turnout, comprehension delta, confusion pulse) are reasonable but read more like a future execution plan for if/when the feature is built, and its verdict leans on an assumption (course/exam-date matching = homogeneous groups) asserted rather than tested, weakening the 'condition specific enough to turn out false' criterion."
+      }
+    },
+    "scored_on_unscrubbed_text": {
+      "document_1_actual_arm": "skills-off",
+      "document_2_actual_arm": "skills-on",
+      "verdict": {
+        "document_1_score": 6,
+        "document_2_score": 9,
+        "verdict": "document_2",
+        "reasoning": "Both reach the same 'competes, don't build now' call and identify similar risks (shared-ignorance ceiling, unvalidated one-pager falsifier), but Document 1's signals (match acceptance, comprehension delta) are post-launch metrics with no concrete pre-registered thresholds or timeline, making its stop condition vague ('low' or 'flat-to-negative'). Document 2 pre-registers a specific, cheap, falsifiable test (opt-in rate \u226520% vs 5% baseline, exact binomial test, n\u224830, 4-week window) with explicit numeric stop/proceed rules and capacity guardrails, satisfying the rubric's demand for a specific observable signal and explicit stop condition far more rigorously."
+      }
+    },
+    "scrubbed_scores_by_arm": {
+      "skills-on": 8,
+      "skills-off": 6
+    },
+    "unscrubbed_scores_by_arm": {
+      "skills-off": 6,
+      "skills-on": 9
+    },
+    "scrub_changed_score": true
+  },
+  "manifest": "/tmp/claude-1000/-home-jwjung-tokenmaxxxer/f1c8e2a2-3d9d-4d30-805e-b03e333c42ed/scratchpad/r007/manifest.json",
+  "transport": "/tmp/claude-1000/-home-jwjung-tokenmaxxxer/f1c8e2a2-3d9d-4d30-805e-b03e333c42ed/scratchpad/r007/transport.json",
+  "manipulation_check": {
+    "manipulation_held": true,
+    "pair_excluded": false,
+    "manifest": "/tmp/claude-1000/-home-jwjung-tokenmaxxxer/f1c8e2a2-3d9d-4d30-805e-b03e333c42ed/scratchpad/r007/manifest.json",
+    "transport": "/tmp/claude-1000/-home-jwjung-tokenmaxxxer/f1c8e2a2-3d9d-4d30-805e-b03e333c42ed/scratchpad/r007/transport.json",
+    "arms_checked": [
+      "on",
+      "off"
+    ]
+  },
+  "arm_results": {
+    "on": {
+      "arm": "on",
+      "issue": 19,
+      "status": "watched-to-completion",
+      "wall_clock_to_pr_open_s": 523.4454312138259,
+      "wall_clock_to_landed_s": null,
+      "landing_measurement_status": "not_measured -- this harness observes only the spawned session's own session-end event, which under the unmodified two-phase protocol is at most a phase-1 proposal PR opening, not a merge to main. wall_clock_to_pr_open_s is the honest name for what was actually timed.",
+      "dispatch_returncode": 0,
+      "watch_returncode": 0,
+      "watch_stderr": null
+    },
+    "off": {
+      "arm": "off",
+      "issue": 20,
+      "status": "watched-to-completion",
+      "wall_clock_to_pr_open_s": 270.9950036574155,
+      "wall_clock_to_landed_s": null,
+      "landing_measurement_status": "not_measured -- this harness observes only the spawned session's own session-end event, which under the unmodified two-phase protocol is at most a phase-1 proposal PR opening, not a merge to main. wall_clock_to_pr_open_s is the honest name for what was actually timed.",
+      "dispatch_returncode": 0,
+      "watch_returncode": 0,
+      "watch_stderr": null
+    }
+  },
+  "verification": {
+    "on": {
+      "verification_rounds": null,
+      "defects_found": null,
+      "measured": false,
+      "reason": "gh pr view 'issue-19/product-discovery-hypothesis-preregistration' failed: no pull requests found for branch \"issue-19/product-discovery-hypothesis-preregistration\""
+    },
+    "off": {
+      "verification_rounds": null,
+      "defects_found": null,
+      "measured": false,
+      "reason": "gh pr view 'issue-20/product-discovery-hypothesis-preregistration' failed: no pull requests found for branch \"issue-20/product-discovery-hypothesis-preregistration\""
+    }
+  },
+  "cost": {
+    "on": {
+      "cost_usd": null,
+      "measured": false,
+      "reason": "no runs/ledger.jsonl entries for issue=19 skill='product-discovery-hypothesis-preregistration'",
+      "skipped_malformed_lines": 0
+    },
+    "off": {
+      "cost_usd": null,
+      "measured": false,
+      "reason": "no runs/ledger.jsonl entries for issue=20 skill='product-discovery-hypothesis-preregistration'",
+      "skipped_malformed_lines": 0
+    }
+  }
+}
