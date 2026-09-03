@@ -266,6 +266,25 @@ the failure being unrelated to a differently-shaped ask that follows it
 skill-verdict: test-derivation — applied: invoked; used to structure the
 episode-size × coverage × is_error decision table above and confirm no
 feasible partition was left untested.
+canonical: the delegated freelunch-worker's own final report text for
+this task, verbatim: "test-derivation — applied: invoked; used to
+structure the suppress/must-not-suppress equivalence partitions" (agent
+id a528351f8a56c60a4, this session's own dispatch) — the only record of
+a Skill-tool call for this task; it ran inside that worker's own
+execution context, not as a Skill-tool call logged against this
+orchestrating session directly.
+
+other mounted skills (implementation-blueprint, silent-failure-audit,
+work-in-english, test-depth-audit, implementation-audit,
+overengineering-audit, diagnose-first,
+conformance-review-finding-record): not triggered at the orchestrating-
+session level.
+canonical: this turn's `skill-verdict-guard` Stop-hook advisory message
+— "this session mounted 9 skill(s) ... and invoked none of them via the
+Skill tool" — confirming zero Skill-tool calls were logged against this
+session directly; the substantive fix/test/verification work was
+delegated whole to one background freelunch:freelunch-worker per this
+session's freelunch directive, so this session made none of its own.
 
 **Named, disclosed residual risk (not closed by this round):** a single
 covered action can structurally fail for a reason that has nothing to do
