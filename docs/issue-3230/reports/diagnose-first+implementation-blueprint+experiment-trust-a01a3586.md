@@ -556,3 +556,396 @@ block. Sorted `wall_s` values across this 5-call live sample: 13.567,
 consistent with both the historical 16.663s (issue-3186/PR #3200) and
 this session's fresh 16.343s (`measure_skill_judge.py --report`, quoted
 in the acceptance section above) medians.
+
+## Round 2 — correcting the async-delivery claim (PR #3240 independent verification)
+
+canonical: PR #3240, "issue-3230: independent adversarial verification of
+PR #3234's skill_judge diagnosis" (merged, sha
+`07ffcb7444ae47587e2c74b58187ce009b0abb9a`), read in full this round via
+`gh pr view 3240` and `gh pr diff 3240`; its own record (path
+`docs/issue-3230/reports/adversarial-review+diagnose-first+experiment-trust-f2f4f629.md`,
+untracked on this branch — that content merged to `main` via PR #3240,
+this branch was cut before that merge and never received it; read this
+round via `gh pr diff 3240` instead of a local path). PR #3240
+independently re-derived this record's three named findings from scratch:
+two replicate and strengthen — BM25 disagreement combined: this record's
+own 0/5 (Question 2 above) + PR #3240's independent 0/10 = 0/15 on the
+combined larger sample; the cache repeat/disagreement numbers replicate
+on a corrected ~5x-larger sample, see Correction 2 below — and the third,
+Question 3's async-delivery claim immediately below, is graded
+**Incorrect**. A fifth option this record never named (scoping the judge
+to the issue rather than the dispatch) is also raised. This section
+corrects each.
+
+### Correction 1 — the truncation fix widened two limits, not one
+
+"What was done" above (this record, unchanged text) describes only "the
+question-field truncation ... from 200 to 4000 characters." The actual
+`consult.py` diff on this branch widens both fields:
+
+```python
+     line = (f"- {ts} | skill={skill} | verb={verb} "
+             f"| issue={issue if issue is not None else 'none'} "
+-            f"| question={question[:200]!r} | outcome={outcome[:300]!r}")
++            f"| question={question[:4000]!r} | outcome={outcome[:2000]!r}")
+```
+derived: `git diff main -- consult.py` on this branch, executed this
+round — result matches the block above exactly (question 200→4000,
+outcome 300→2000). The outcome-field widen is the same
+observability-only class of fix (it does not touch selection or timing
+logic) but this record never disclosed it. Corrected description: this
+commit widened both the question-field truncation (200→4000 chars) and
+the outcome-field truncation (300→2000 chars) in `_append_consult_trace()`.
+
+### Correction 2 — Question 1's cache numbers, on a corrected sample
+
+Question 1 above reports n=56 real dispatches, 25% repeat, 43% of repeat
+pairs disagreeing, derived from a `~/.tokenmaxxxer/work/*/docs/issue-*/reports/consult-log{,/*.md}`
+glob. PR #3240 found and disclosed two methodology gaps in that scan,
+neither named in Question 1 above:
+
+1. **Corpus duplication.** `consult-log` files are git-committed, not
+   gitignored, so any workspace whose checkout includes a commit that
+   touched one gets a byte-identical copy; a glob over many workspace
+   clones counts every copy as a separate observation.
+2. **Field-name-rename undercount.** The scan's regex requires the
+   literal field name `skill=` immediately before `verb=skill_judge`;
+   that field was renamed from `role=` to `skill=` partway through this
+   repo's history (canonical, PR #3240's record, read via `gh pr diff
+   3240` this round: `git log --all --oneline
+   -S'line = (f"- {ts} | skill={skill} | verb={verb} "'  -- consult.py`
+   shows the rename landing at commit `190321de059bf8b12de9cb2f943e8f8233f51ad2`),
+   so the scan silently excludes essentially all pre-rename trace lines.
+
+Correcting both (content-hash deduplication across workspace clones, an
+`ast.literal_eval`-based parser accepting both the `role=` and `skill=`
+field-name eras — full parser body in PR #3240's own evidence appendix,
+read in full this round), PR #3240's re-derivation found:
+
+```
+total skill_judge lines: 315 | parsed ok: 315 | fixture-filtered: 24 | real remaining: 291
+real keys repeated >1x: 36 | repeat events: 93
+repeat share of real dispatches: 0.3196 (93/291)
+repeat-pair comparisons (both ok:): agree=52 disagree=29
+disagree share: 0.358 (29/81)
+```
+canonical: PR #3240's record, `/tmp/robust_parse.py` output, quoted
+verbatim there and reproduced identically above — read in full this
+round via `gh pr diff 3240`.
+
+Corrected numbers for this record: on a ~5x-larger, deduplicated,
+both-field-name-eras sample (n=291, vs. this record's own n=56), the real
+repeat share is 32% (93/291 = 0.3196, vs. this record's 25%) and the
+disagreement-among-repeats share is 36% (29/81 = 0.358, vs. this record's
+43%). The qualitative conclusion in Question 1 above is unchanged by the
+correction — a large-enough share of dispatches repeat, and a
+large-enough share of those repeats disagree on byte-identical input,
+that a naive cache is unsafe — but the specific 56/25%/43% figures this
+record reported as *the* measurement were a narrower, undisclosed slice
+of a larger real signal that happens to point the same direction. Cite
+32%/36% (n=291), not 25%/43% (n=56), going forward.
+
+### Correction 3 — Question 3's central claim is factually wrong
+
+Question 3 above states: "Making dispatch async would therefore require a
+new mechanism to deliver information into an already-started session's
+context; this codebase has none today." That claim is false. This repo
+already ships a wired, production `PostToolUse` hook built for exactly
+this purpose:
+
+```python
+# on-the-record/hooks/amendment_channel.py:1-14 (module docstring)
+"""Amendment channel (issue #3129): the local-file bridge that lets an
+orchestrator's mid-flight issue-body edit reach a spawned worker session
+that already read the issue once at spawn and never re-reads it.
+...
+The seam this uses instead: `PostToolUse` fires on every tool call in a
+worker session and its output lands in that session's context
+(`hookSpecificOutput.additionalContext`).
+```
+canonical: `on-the-record/hooks/amendment_channel.py:1-14`, read directly
+this round in this branch's own checkout. Registered in
+`on-the-record/hooks/hooks.json`, wired via `on-the-record/hooks/amendment-channel.sh`
+(both read directly this round; unmodified by this session — cited, not
+edited).
+
+The write side is a plain function, not gated behind the `gh issue edit`
+trigger that is its only current caller:
+
+```python
+# on-the-record/hooks/amendment_channel.py:593-618
+def write_amendment(state_dir: str, repo: str, issue: str, note: str = "") -> Optional[int]:
+    """Bump the amendment marker for `repo`'s `issue` and return the new version.
+    ...
+    """
+    try:
+        existing = read_marker(state_dir, repo, issue)
+        version = (existing.get("version") if existing else 0) + 1
+        data = {
+            "version": version,
+            "written_at": datetime.now(timezone.utc).isoformat(),
+            "note": note[:_NOTE_MAX],
+        }
+        _atomic_write_json(marker_path(state_dir, repo, issue), data)
+        return version
+    except OSError:
+        return None
+```
+canonical: `on-the-record/hooks/amendment_channel.py:593-618`, read
+directly this round. `_NOTE_MAX = 2000` (`amendment_channel.py:362`, read
+this round). The read side fires unconditionally on every `PostToolUse`
+call in a session whose branch/repo resolves, and delivers the note
+into that session's own context at most once per version bump:
+
+```python
+# on-the-record/hooks/amendment_channel.py:651-677
+def check_notice(state_dir: str, session_id: str, repo: str, issue: str) -> Optional[str]:
+    try:
+        marker = read_marker(state_dir, repo, issue)
+        if marker is None:
+            return None
+        version = marker["version"]
+        seen = _read_seen(state_dir, session_id, repo, issue)
+        if version <= seen:
+            return None
+        _write_seen(state_dir, session_id, repo, issue, version)
+        return format_notice(issue, marker)
+    except OSError:
+        return None
+```
+canonical: `on-the-record/hooks/amendment_channel.py:651-677`, read
+directly this round.
+
+Corrected Question 3 conclusion: a delivery mechanism into an
+already-started session exists, is wired, and is in production. Today it
+is triggered only from `record_amendment_from_response()`
+(`amendment_channel.py:874-913`, read this round), which fires
+specifically on a `gh issue edit --body` Bash call — but `write_amendment()`
+itself takes only `(state_dir, repo, issue, note)`, all of which
+`spawn.py`'s own dispatch code already holds directly at the point the
+`_cross_family_future` resolves (it composed the same `issue` and target
+repo identifiers before ever calling `_cross_family_executor.submit()`,
+`spawn.py:4002-4010`, read this round). Calling `write_amendment()` from
+the future's completion callback does not need `registered_repo_for_pid()`'s
+roster/`/proc` ancestry walk at all — that mechanism exists to let a
+*different*, already-running orchestrator session identify *which* other
+session's marker to bump; here the writer is `spawn.py` itself, in the
+same process that is about to Popen the worker and already knows that
+worker's exact repo+issue. Wiring the callback is real, additive work (a
+new call site, not present today) but it is integration onto an existing
+primitive, not "a structural addition" building a new one from nothing.
+
+### Is async dispatch viable? (the analysis Question 3's false premise skipped)
+
+Confirming a delivery mechanism exists answers whether wiring is
+*possible*. It does not answer whether async dispatch is *safe* to ship,
+which is the question R007 actually asks. Three structural properties of
+this specific channel bear directly on that, none of which the record
+above got to consider because it stopped at "no mechanism exists":
+
+1. **Delivery is reactive, not proactive.** `check_notice()` only fires
+   from inside the `PostToolUse` hook of the worker session's *own* next
+   tool call (`amendment_channel.py:651-677`, quoted above) — there is no
+   push path, no proactive re-render of context. If the async judge has
+   not resolved by the time the session makes its first tool call (its
+   own directive text instructs `gh issue view <n>` first), that first
+   call sees no marker at all (version 0, nothing to absorb) and the
+   session proceeds on whatever skill list *was* available at Popen time
+   — today the merge is add-only (`merge_composed_skill_source(skill_source,
+   cross_family_dirs)`, `spawn.py:4402`, cited in Question 3 above), so an
+   async design would most plausibly Popen with the static/POLICY skill
+   set only and add the cross-family match later, not force-mount a wrong
+   set.
+2. **Delivery is advisory text, not a system-prompt rewrite.** `format_notice()`
+   returns a string ("...re-read it before continuing. This is advisory:
+   decide whether the correction is right, do not halt on it.") folded
+   into `hookSpecificOutput.additionalContext` — it cannot retroactively
+   change the `--append-system-prompt` block the session's first turn was
+   already generated against. The correction can tell the session "these
+   skills also matched, consider invoking them via the Skill tool," which
+   is mechanically possible (the Skill tool can invoke any named skill in
+   the skill-repository, not only ones pre-listed as "mounted" — see this
+   session's own tool listing), but it depends on the model reading the
+   note and acting on it voluntarily, same as the existing synchronous
+   "마운트된 스킬" line already does today.
+3. **Work already done under the wrong skill set does not undo.** The
+   channel has no rollback; whatever the session already decided or
+   executed before the correction lands stands. This matters specifically
+   for skills whose entire function is a gate on the *first* decision a
+   session makes — e.g. `diagnose-first`'s "stop and diagnose before
+   acting," or `warrant`'s "proposal before code" — because those gates
+   have no effect if consulted only after the session has already started
+   executing. A session that never got the nudge to invoke `diagnose-first`
+   before its first substantive action, and only receives it after several
+   tool calls, has already made the decision the skill exists to gate.
+
+Point 3 is not hypothetical: canonical:
+`docs/issue-1960/reports/execution-observation/baseline-measurement.md`
+(the fenced derivation under its own "## Derived: relevance-gated
+invocation rate" heading), read in full this round, measured the
+*synchronous*, Popen-time, prompt-embedded version of this same nudge —
+
+```
+relevance-gated denominator (mounted_count > 0): 38
+sessions with >=1 Skill tool invocation: 0
+relevance-gated invocation rate: 0 / 38 = 0.0%
+```
+canonical: `docs/issue-1960/reports/execution-observation/baseline-measurement.md`,
+same fenced block, read in full this round — and found a 0% voluntary-
+invocation rate even when the trigger text is present from the session's
+very first prompt, at the point of maximum attention. An async correction
+is strictly weaker than that already-weak signal: it arrives later (after
+point 1's race, possibly after several tool calls), competes with a
+trajectory the session has already started (point 3), and remains
+advisory-only (point 2) either way. There is no positive evidence in this
+repo that a later, reactive, advisory nudge outperforms an already-
+measured 0% synchronous one — and R007's own `must not` clause forbids
+shipping a selection-affecting change without measuring whether it makes
+selection worse.
+
+**Conclusion: async dispatch is technically buildable on the existing
+amendment channel — Question 3's "no mechanism exists, structural
+addition" claim was wrong — but it is not safe to ship this round.** The
+correct reason is not the absent-mechanism claim; it is that this
+specific channel's three properties (reactive delivery, advisory-only
+content, no undo for work already done) make it a plausible but unproven
+fix for a problem — sessions not reliably acting on skill guidance — this
+repo has already measured at 0% even under the *more* favorable
+synchronous condition. If R007 or a follow-up wants to pursue this, it
+needs a design that closes point 1 (e.g., the worker's own directive text
+instructs it to wait for the notice before its first substantive action
+when `skill_judge_outcome` was `not-run`/`pending` at spawn, not just hope
+a later tool call happens to catch it) and then an actual before/after
+skill-selection measurement — exactly the demonstration R007 asks for and
+this record does not yet have. Per the task that requested this round:
+this round does not ship a dispatch-path change, because that design and
+measurement do not exist yet — but the refusal now rests on these three
+named properties, not on a mechanism that does not exist.
+
+### The fifth option — scoping the judge to the issue, not the dispatch
+
+PR #3240 also names an option never considered in this record: run
+`_skill_judge_consult()` once per issue (not once per dispatch) and reuse
+that decision for every subsequent spawn against the same issue. Its own
+cache evidence (Correction 2 above: 36% of repeat pairs disagree on
+byte-identical input) is relevant here, but the question this round was
+asked to answer is more specific: does that disagreement kill
+issue-scoping the same way it kills the task-text-keyed cache, or is a
+*deliberate* once-per-issue decision different from a cache that
+*silently* freezes an arbitrary sample?
+
+They are different in kind — a deliberate scoping choice is at least
+visible and intentional, where the rejected cache in Question 1 above
+freezes whichever answer a naive key first happened to see, silently.
+But that difference does not make issue-scoping safe, for two reasons
+distinct from "the judge disagrees with itself":
+
+1. **Task text genuinely differs within one issue, and issue-scoping
+   discards that signal on purpose.** `_cross_family_task_text = task`
+   (`spawn.py:3950`, read directly this round) is the actual per-dispatch
+   task text handed to the judge — a phase-1 proposal spawn and a phase-2
+   continuation spawn for the same issue number carry materially
+   different task text (this record's own Question 1 evidence appendix
+   glob keys on exactly `(issue, question)` for this reason). Issue-scoping
+   is a *looser* key than the task-text+corpus key this record already
+   rejected in Question 1 — it collapses those legitimate differences
+   into one served answer, on top of whatever noise the judge already
+   has on identical input.
+2. **A one-time decision creates a durable single point of failure the
+   current per-dispatch design does not have.** canonical: Correction 2
+   above quotes PR #3240's `/tmp/robust_parse.py` output directly, which
+   also reports "repeated keys with at least one non-ok(parse-error)
+   outcome among the repeats: 7" (7/36 = 19% of repeated real keys) — a
+   bad judge draw, today, affects one dispatch; the next dispatch gets a
+   fresh judge call and a fresh chance at a better draw. Issue-scoping
+   would lock the *first* dispatch's draw in for that issue's entire
+   remaining life — every phase, every repair round, every follow-up
+   spawn — with no mechanism to reconsider it. Given the judge disagrees
+   with itself over a third of the time on identical input (36% = 29/81,
+   Correction 2 above), trusting a single draw as authoritative for an
+   issue's whole lifetime is a materially different risk than caching a
+   task-text-keyed answer that a new, different dispatch would bypass
+   anyway.
+
+**Conclusion: the disagreement finding does undercut issue-scoping too,
+though for a different, sharper reason than "it's a cache and caches are
+unsafe" — a deliberate one-time decision does not neutralize a judge that
+is shown to be unstable on identical input, it just makes the instability
+durable instead of transient, and it additionally discards real
+within-issue task-text variation on purpose.** This option should have
+been named and rejected explicitly in the original record rather than
+omitted; a corrected version of this record would very likely reject it
+too, on evidence this record already gathered (Question 1) plus the
+task-text-variation evidence above, newly cited this round.
+
+### Round 2 re-run of the acceptance checks
+
+acceptance: `python3 -m pytest tests/test_issue_3230_skill_judge_cost.py -q`
+(this branch, this round) — result:
+```
+13 passed in 0.88s
+```
+acceptance: `python3 scripts/issue-3230/measure_skill_judge.py --report`
+(this branch, this round) — result:
+```
+issue-3230 skill_judge dispatch-wait -- measured report
+ledger files scanned: 44
+raw skill_judge_perf events found: 1230
+real (plausible) events after filter (duration_ms present AND wall_s >= 1.0s): 31
+  filtered out as test-fixture noise (monkeypatched subprocess.run in this repo's own unit tests): 1199
+
+-- skill_judge subprocess wall-clock time, per real dispatch --
+  n=31 min=8.295s max=56.653s mean=21.796s median=20.700s p90=31.131s
+  outcome_ok=True: 31/31
+```
+exit code 0 — n grew from this record's own n=21 to n=31 (more real
+spawns happened on the shared, live ledger corpus between this record's
+own session and this round; expected drift, matches PR #3240's own
+independent re-run which also saw n=31, median 20.700s, on the same
+worktree sha).
+
+acceptance (must-not): `python3 scripts/issue-3186/measure_cross_family.py --report`
+(this branch, this round) — result: exit code 0, `bootstrap_timing lines
+found: 18` — still runs, still finds its data; this round touched no file
+under `scripts/issue-3186/`, `pipeline.py`, or `directive_assembly.py`.
+
+acceptance: `python3 -m pytest -q` (full suite, this branch, this round)
+— result:
+```
+4 failed, 1433 passed, 3 xfailed, 2 warnings in 45.96s
+```
+Same 4 pre-existing failures as this record's own original run and PR
+#3240's independent confirmation
+(`on-the-record/hooks/test_hook_classification.py` x2,
+`harness/fixture-operator-experience/test_flow.py::test_first_contact_fires_once_per_workspace`,
+`on-the-record/checks/test_macos_bash32_compat.py`) — this round made no
+code change (documentation-only correction to this record), so this is
+the same pre-existing set by construction, not a fresh re-verification.
+
+## Round 2 — what did not work
+
+canonical: this round's own executed commands, quoted in full under
+"Round 2 re-run of the acceptance checks" immediately above (same round,
+same file) — every check that section names ran to completion and
+produced the output quoted there; 0 abandoned attempts this round. Every
+re-derivation and code citation this round planned to make was completed
+and is quoted above. This round ships no code change — the async-
+viability and issue-scoping analyses above conclude neither is safe to
+ship without further design and measurement work this round does not do
+(see "Conclusion" in each section above), so per the task that requested
+this round, no dispatch-path change is shipped, matching (for corrected
+reasons) this record's original Round 1 decision.
+
+## Round 2 — skill verdicts
+
+skill-verdict: diagnose-first — applied: invoked; re-ran G2's
+verify-against-evidence axis specifically against Question 3's own claim
+(reading the cited code instead of trusting the prior round's citation
+list) and against the fifth option's viability, rather than accepting
+either the original record's or PR #3240's framing at face value.
+skill-verdict: implementation-blueprint — not-applicable: this round
+ships no code; async wiring is scoped as future design work, not
+implemented here.
+skill-verdict: experiment-trust — not-applicable: no variant-comparison
+result is being reported as a launch decision this round; the corrected
+cache/BM25 numbers are diagnostic re-derivations, not an A/B result.
