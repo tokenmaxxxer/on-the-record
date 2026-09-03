@@ -2065,6 +2065,69 @@ def _cross_workspace_board_sweep_lock_path(repo_root: Path) -> Path:
             f"board-sweep-{_sp._repo_identity(repo_root)}.lock")
 
 
+# A lock just written can be read back mid-write; nothing younger than this
+# is examined, so the sweep never races a holder that is still starting.
+DEAD_LOCK_MIN_AGE_SEC = 300
+# Files examined per tick. 3,945 had accumulated when this landed; draining
+# them over several ticks costs nothing anyone can feel, while a full scan
+# every 120s would be 4,000 reads for a directory that changes rarely.
+DEAD_LOCK_SWEEP_BUDGET = 200
+
+
+def sweep_dead_locks(lock_dir: Path | None = None, now: float | None = None,
+                     budget: int = DEAD_LOCK_SWEEP_BUDGET) -> dict:
+    """Remove lock files whose holder is provably dead (issue #3273).
+
+    Reclaiming a dead lock already worked -- `watchdog_lock_acquire()`
+    checks pid liveness and start time, so a stale file blocks nothing.
+    The cost was diagnostic: a directory of 3,945 dead-held locks looks
+    exactly like a jammed system, and reading it is what made me call the
+    watchdog "really broken" and retract it a minute later. This repository
+    has spent a day on defects of that shape.
+
+    Deletes only on proof of death: the file parses, names a pid, and that
+    pid is either gone or has a different start time than the lock records.
+    Anything else -- unreadable, malformed, too young, or a live holder --
+    is left alone and counted. A lock removed while its holder runs is how
+    two watchdogs sweep one board at once, so uncertainty never deletes.
+    """
+    lock_dir = lock_dir or (_sp._workspace_base().parent / "locks")
+    now = now if now is not None else time.time()
+    out = {"removed": 0, "live": 0, "unreadable": 0, "too_young": 0,
+           "examined": 0}
+    try:
+        entries = sorted(lock_dir.glob("*.lock"))
+    except OSError:
+        return out
+    for path in entries:
+        if out["examined"] >= budget:
+            break
+        out["examined"] += 1
+        try:
+            if now - path.stat().st_mtime < DEAD_LOCK_MIN_AGE_SEC:
+                out["too_young"] += 1
+                continue
+            held = json.loads(path.read_text())
+            pid = held.get("pid")
+            start = held.get("start_time")
+        except (OSError, ValueError, AttributeError):
+            # Cannot prove death, so cannot delete. Counted, not hidden.
+            out["unreadable"] += 1
+            continue
+        if not isinstance(pid, int):
+            out["unreadable"] += 1
+            continue
+        if _sp._alive(pid) and _sp._proc_start_time(pid) == start:
+            out["live"] += 1
+            continue
+        try:
+            path.unlink()
+            out["removed"] += 1
+        except OSError:
+            out["unreadable"] += 1
+    return out
+
+
 def cross_workspace_board_sweep_lock_acquire(
         repo_root: Path, pid: int | None = None) -> tuple[bool, str]:
     """이슈 #1554 요구 2: 레포 하나에 board-wide 스위퍼가 딱 하나만 뜨게
@@ -2379,6 +2442,15 @@ def roster_watchdog(auto_respawn: bool = False, all_scope: bool = False,
     # 이슈 #1276: 로스터를 여기서 먼저 읽는다 — 보드 스윕이 로스터가
     # 가리키는 distinct 타깃 레포까지 커버해야 해서(요구#1), 로스터 스캔
     # 루프가 쓰는 `d_all` 과 같은 한 번의 읽기를 그대로 재사용한다.
+    # Issue #3273: drain dead-held lock files a budget at a time. Only on
+    # proof of death, and reported rather than silent -- the whole point is
+    # that a pile of stale locks looked like a jammed system.
+    _locks = sweep_dead_locks()
+    if _locks["removed"] or _locks["unreadable"]:
+        print(f"[watchdog] lock-sweep: 죽은 락 {_locks['removed']}건 제거, "
+              f"살아있는 락 {_locks['live']}건 유지"
+              + (f", 판독 불가 {_locks['unreadable']}건(삭제 안 함)"
+                 if _locks["unreadable"] else ""))
     d_all = _sp._roster_load()
     anomaly_count += _sp._board_wide_sweep_all(root, d_all)
     # Issue #2101 mechanisms 3+4: level-triggered reconcile sweep (expired
