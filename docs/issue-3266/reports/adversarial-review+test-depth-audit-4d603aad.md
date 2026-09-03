@@ -259,6 +259,11 @@ clears. derived: cross-referenced against Open finding #1 above (same
 heading-only-content shape described there, which is exactly the kind of
 coverage gap this audit exists to surface.
 
+skill-verdict: work-in-english — applied: invoked; wrote this record,
+the commit message, and the PR title/body in English per the skill's
+routing rule, and reserved Korean for the end-of-turn summary read by
+the user.
+
 other mounted skills: not triggered (implementation-audit, merge-gates,
 parallel-decomposition, defect-verification-independence-from-upstream-verdicts
 were surfaced by the post-dispatch skill_judge amendment but the Skill
