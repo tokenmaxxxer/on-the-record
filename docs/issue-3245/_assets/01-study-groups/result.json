@@ -1,0 +1,54 @@
+{
+  "pair_id": "01-study-groups",
+  "recollection_note": "This result is NOT produced by a fresh scripts/consumer-path/run_pair.py --execute run -- round 3 recollected it from round 2's real dispatch (workspace issue-3245/experiment-trust+implementation-blueprint+silent-failure-audit-f264980e, never landed in a PR). manifest.json/transport.json here are copied byte-identical from that workspace's own pre-dispatch artifacts (manifest.json.sha256 verified to match); arm_results below are copied from that workspace's own post-watch result.json, itself dispatch_returncode=0/watch_returncode=0 for both arms -- real, successful dispatches, not fabricated. h2 was computed this round by feeding PRs #29/#30's bodies (fetched live via `gh pr view`) into the existing blind scorer scripts/issue-3041/evaluate_pair.py directly, bypassing run_pair.py's own compute_h2() closure, because that closure needs a live workspace this round cannot reconstruct (see h1 note below).",
+  "manifest": "docs/issue-3245/_assets/01-study-groups/manifest.json",
+  "transport": "docs/issue-3245/_assets/01-study-groups/transport.json",
+  "manipulation_check": {
+    "manipulation_held": true,
+    "pair_excluded": false,
+    "manifest": "docs/issue-3245/_assets/01-study-groups/manifest.json",
+    "transport": "docs/issue-3245/_assets/01-study-groups/transport.json",
+    "arms_checked": ["on", "off"],
+    "note": "pre-dispatch argv/env cross-check only (verify_manipulation.py) -- distinct from H1 below, which needs a post-dispatch session log."
+  },
+  "arm_results": {
+    "on": {
+      "arm": "on", "issue": 19, "status": "watched-to-completion",
+      "wall_clock_to_pr_open_s": 367.48699934594333,
+      "wall_clock_to_landed_s": null,
+      "dispatch_returncode": 0, "watch_returncode": 0, "watch_stderr": null,
+      "real_pr": "https://github.com/JiwonJung94/study-companion/pull/29",
+      "real_branch": "issue-19/product-discovery-hypothesis-preregistration-37412f31"
+    },
+    "off": {
+      "arm": "off", "issue": 20, "status": "watched-to-completion",
+      "wall_clock_to_pr_open_s": 448.3366864286363,
+      "wall_clock_to_landed_s": null,
+      "dispatch_returncode": 0, "watch_returncode": 0, "watch_stderr": null,
+      "real_pr": "https://github.com/JiwonJung94/study-companion/pull/30",
+      "real_branch": "issue-20/product-discovery-hypothesis-preregistration-abf6a734"
+    }
+  },
+  "h1": {
+    "status": "unrecoverable",
+    "reason": "Round 2's H1 check (collect_skill_invocation()) reported both arms as 'never reached a dispatched, log-producing state' -- false: both arms dispatched and watched to completion (arm_results above), producing real PRs #29/#30 at exactly the branch hashes the harness itself expected. That false verdict was the watch-race/wrong-workspace-guess bug round 3 fixes (see scripts/issue-3127/run_consumer_pair.py's collect_skill_invocation()/_discover_arm_branch()). The FIX corrects the label from 'never-dispatched' to 'unknown' going forward, but cannot retroactively recover round 2's own session-log artifacts, which have since been cleaned up on this machine (checked: no study-companion-issue-19-...-37412f31.session.*.log or ...-abf6a734.session.*.log under $MUSTER_WORKSPACE_ROOT as of this round). So pair 1's H1 (did the on arm actually invoke the Skill tool, did the off arm not) is unrecoverable, not failed and not passed -- there is no session log left to check either way.",
+    "h1_manipulation_ok": false
+  },
+  "h2": {
+    "note": "Computed directly from PRs #29 (on) / #30 (off) bodies via scripts/issue-3041/evaluate_pair.py, run live this round.",
+    "evaluator_verdict": {
+      "document_1_score": 7,
+      "document_2_score": 7,
+      "verdict": "indistinguishable",
+      "reasoning": "Both are just summaries/test-plans of the same underlying brief structure (same-job analysis, gating hypothesis, kill/guardrail conditions, pilot design), so they contain the same rubric elements at the same level of abstraction -- neither shows the actual specific falsifiable condition or signal timeline text itself, just references to where it lives. Without visibility into the linked brief.md content, the two summaries are functionally equivalent in what they claim to satisfy."
+    },
+    "document_1_actual_arm": "skills-off",
+    "document_2_actual_arm": "skills-on",
+    "raw_output": "docs/issue-3245/_assets/01-study-groups/h2_evaluation.json",
+    "caveat": "Scored from PR body text (the same deliverable_fetcher shape run_pair.py's own compute_h2() uses -- gh pr view --json body), which is a short summary/test-plan, not the full linked brief.md the PR references. The evaluator's own reasoning flags this: it could not see the brief's actual falsifiable-condition/signal-timeline text, only pointers to where it lives."
+  },
+  "h1_manipulation_ok": false,
+  "excluded_from_h2": true,
+  "exclusion_reason": "H1 is unrecoverable for this pair (session-log artifacts from round 2's real dispatch no longer exist on this machine -- see h1.reason), not failed and not passed. Per this issue's own must-not ('do not score a pair whose manipulation check failed'), this pair is excluded from the formal n>=5 tally on the conservative reading that an unrecoverable check does not count as a passing one. The h2 tie score above is reported anyway, plainly labeled as supplementary and not gated by a passing H1, because the issue's other must-not ('do not report an aggregate that hides a per-pair result') cuts the other way -- suppressing a real, recollected result would itself be a silent failure.",
+  "verified_hash_match": "manifest.json.sha256 recomputed locally this round and matches the committed sidecar -- the manifest itself was not tampered with."
+}

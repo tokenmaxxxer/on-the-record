@@ -25,6 +25,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
@@ -47,6 +48,81 @@ def _init_line(mounted: bool) -> str:
 def _tool_use_line(skill: str) -> str:
     return ('{"type":"assistant","message":{"content":[{"type":"tool_use",'
             f'"name":"Skill","input":{{"skill":"{skill}"}}}}]}}')
+
+
+class DiscoverArmBranchTest(unittest.TestCase):
+    """Issue #3245 round 3: `_discover_arm_branch()` waits for the arm's
+    real PR rather than concluding from one early poll -- a PR that is
+    real but not yet indexed by `gh` must be "not yet observable", never
+    silently reported as "never happened"."""
+
+    def _fake_run(self, per_call_stdout):
+        calls = []
+
+        def _run(cmd, capture_output, text, timeout):
+            calls.append(cmd)
+            stdout = per_call_stdout[len(calls) - 1]
+            return mock.Mock(returncode=0, stdout=stdout, stderr="")
+        return _run, calls
+
+    def test_finds_pr_on_a_later_poll_not_the_first(self):
+        """The exact round-2 shape: the first poll(s) see no PR yet (the
+        session had not registered/the PR was not yet indexed), and a
+        later poll does -- this must be reported as found, not as
+        exhausted after the first empty result."""
+        import json as _json
+        empty = _json.dumps([])
+        found = _json.dumps([
+            {"number": 29, "headRefName":
+                "issue-19/product-discovery-hypothesis-preregistration-37412f31",
+             "createdAt": "2026-09-03T02:01:31Z"}])
+        fake_run, calls = self._fake_run([empty, empty, found])
+        with mock.patch("subprocess.run", fake_run):
+            result = rcp._discover_arm_branch(
+                "JiwonJung94/study-companion", 19, retries=6, delay_s=0,
+                _sleep=lambda s: None)
+        self.assertTrue(result["found"])
+        self.assertEqual(result["pr_number"], 29)
+        self.assertEqual(
+            result["branch"],
+            "issue-19/product-discovery-hypothesis-preregistration-37412f31")
+        self.assertEqual(result["attempts"], 3)
+        self.assertEqual(len(calls), 3)  # stopped polling once found
+
+    def test_never_found_reports_unfound_not_an_exception(self):
+        import json as _json
+        empty = _json.dumps([])
+        fake_run, calls = self._fake_run([empty] * 4)
+        with mock.patch("subprocess.run", fake_run):
+            result = rcp._discover_arm_branch(
+                "JiwonJung94/study-companion", 19, retries=4, delay_s=0,
+                _sleep=lambda s: None)
+        self.assertFalse(result["found"])
+        self.assertIsNone(result["branch"])
+        self.assertEqual(result["attempts"], 4)
+        self.assertIn("no PR", result["reason"])
+        self.assertEqual(len(calls), 4)
+
+    def test_gh_failure_is_retried_not_raised(self):
+        """A transient `gh` failure (rate limit, network blip) must not
+        crash the caller -- it is recorded and retried like an empty
+        result, per this function's own "never raises" contract."""
+        calls = []
+
+        def _run(cmd, capture_output, text, timeout):
+            calls.append(cmd)
+            if len(calls) == 1:
+                return mock.Mock(returncode=1, stdout="", stderr="rate limited")
+            import json as _json
+            return mock.Mock(returncode=0, stdout=_json.dumps([
+                {"number": 5, "headRefName": "issue-19/x",
+                 "createdAt": "2026-09-03T00:00:00Z"}]), stderr="")
+
+        with mock.patch("subprocess.run", _run):
+            result = rcp._discover_arm_branch(
+                "acme/sandbox", 19, retries=4, delay_s=0, _sleep=lambda s: None)
+        self.assertTrue(result["found"])
+        self.assertEqual(len(calls), 2)
 
 
 class ComputeH1ManipulationTest(unittest.TestCase):
@@ -129,6 +205,63 @@ class ComputeH1ManipulationTest(unittest.TestCase):
         result = rcp.compute_h1_manipulation(on_ws, off_ws, SKILL_NAME)
         self.assertFalse(result["differs"])
         self.assertFalse(result["on_invocation"]["measured"])
+
+    def test_missing_on_session_log_without_repo_issue_is_never_dispatched(self):
+        """Back-compat: a caller that supplies no repo/issue (the shape
+        every pre-round-3 call site used) keeps the old label -- this
+        behavior is unchanged unless a caller opts into discovery."""
+        on_ws = self._make_workspace("on", b"a" * 5000)  # no session log
+        result = rcp.collect_skill_invocation(on_ws, SKILL_NAME)
+        self.assertEqual(result["status"], "never-dispatched")
+        self.assertIn("never reached a dispatched", result["reason"])
+
+    def test_missing_session_log_with_repo_issue_but_no_pr_is_unknown_not_never_dispatched(self):
+        """Issue #3245 round 3: round 2's `01-study-groups` pair dispatched
+        and watched BOTH arms to completion (dispatch_returncode 0,
+        watch_returncode 0) but this file's own H1 check still reported
+        "the arm never reached a dispatched, log-producing state" --
+        false, because the guessed workspace path never matched the real
+        one. When a caller supplies repo/issue, a missing log must not be
+        silently reported as "never happened" if it also cannot be
+        resolved by discovery -- it is "unknown"."""
+        on_ws = self._make_workspace("on", b"a" * 5000)  # no session log
+        with mock.patch.object(rcp, "_discover_arm_branch") as m_disc:
+            m_disc.return_value = {"found": False, "branch": None,
+                                    "pr_number": None, "attempts": 3,
+                                    "reason": "no PR found after 3 polls"}
+            result = rcp.collect_skill_invocation(
+                on_ws, SKILL_NAME, repo="acme/sandbox", issue=19)
+        self.assertEqual(result["status"], "unknown")
+        self.assertFalse(result["measured"])
+        self.assertIn("unobservable, not evidence the arm never ran",
+                       result["reason"])
+        self.assertNotIn("never reached a dispatched", result["reason"])
+        m_disc.assert_called_once_with("acme/sandbox", 19)
+
+    def test_missing_guessed_log_but_discovered_branch_finds_the_real_one(self):
+        """The core repair: the workspace path this harness guesses
+        (built from the skill name) is not the workspace spawn.py's
+        `--skills` dispatch actually used (it appends a disambiguator
+        minted at dispatch time -- see `_discover_arm_branch()`'s
+        docstring). Discovering the real branch and re-deriving the
+        workspace path from it must find the log the guess missed."""
+        guessed_ws = self._make_workspace("sandbox-issue-19-my-skill",
+                                           b"a" * 5000)  # no log here
+        real_ws = self._make_workspace(
+            "sandbox-issue-19-my-skill-37412f31", b"a" * 5000,
+            session_log_lines=[_init_line(True), _tool_use_line(SKILL_NAME)])
+        with mock.patch.object(rcp, "_discover_arm_branch") as m_disc:
+            m_disc.return_value = {
+                "found": True,
+                "branch": "issue-19/my-skill-37412f31",
+                "pr_number": 29, "attempts": 2}
+            result = rcp.collect_skill_invocation(
+                guessed_ws, SKILL_NAME, repo="acme/sandbox", issue=19)
+        self.assertTrue(result["measured"])
+        self.assertTrue(result["invoked"])
+        self.assertEqual(result["session_log"],
+                          str(real_ws.parent /
+                              (real_ws.name + ".session.20260902T000000.1.log")))
 
     def test_missing_off_session_log_is_compatible_with_h1_pass(self):
         """The skills-off arm never dispatched at all (PR #3172's actual
