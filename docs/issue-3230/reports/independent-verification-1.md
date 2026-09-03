@@ -147,6 +147,8 @@ independently re-derived first in this record, then found to match PR
 #3240's own record's finding on the same question.
 canonical: `git show 58593a6876d261e3c54a578b72c95e47519720bb:docs/issue-3230/reports/adversarial-review+diagnose-first+experiment-trust-f2f4f629.md` frontmatter `verdict:` field, read directly in this session
 
+skill-verdict: work-in-english — applied: invoked; loaded via the Skill tool this session and followed for this record/PR/commit body (all English; only the final chat summary to the user is Korean).
+
 ## Why
 
 The issue's own text requires the "did not make selection worse" half of
