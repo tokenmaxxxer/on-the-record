@@ -193,7 +193,7 @@ class AutoRespawnConsultsDeliverableGateTest(unittest.TestCase):
 
     def _confirm_crash(self, state, entry):
         """Issue #2969: a single "crashed" verdict no longer reaches the
-        deliverable gate / `_respawn_or_cap()` by itself -- it takes
+        deliverable gate / `_record_dead_session()` by itself -- it takes
         `RESPAWN_CONSECUTIVE_CONFIRMATIONS` consecutive calls sharing the
         same `state` dict (same pattern as
         test/test_reconcile_crash_verdict_race.py's
@@ -206,14 +206,14 @@ class AutoRespawnConsultsDeliverableGateTest(unittest.TestCase):
     def test_respawn_skips_existing_deliverable_when_open_pr_found(self):
         found = {"number": 4242, "branch": "issue-9002/implementation", "state": "OPEN"}
         with mock.patch.object(spawn, "_subject_has_deliverable", return_value=found), \
-             mock.patch.object(spawn, "_respawn_or_cap") as respawn_or_cap:
+             mock.patch.object(spawn, "_record_dead_session") as respawn_or_cap:
             spawn._auto_respawn_check("issue-9002/demo", self._entry(), {})
         respawn_or_cap.assert_not_called()
 
     def test_respawn_skips_existing_deliverable_when_merged_pr_found(self):
         found = {"number": 4243, "branch": "issue-9002/implementation", "state": "MERGED"}
         with mock.patch.object(spawn, "_subject_has_deliverable", return_value=found), \
-             mock.patch.object(spawn, "_respawn_or_cap") as respawn_or_cap:
+             mock.patch.object(spawn, "_record_dead_session") as respawn_or_cap:
             spawn._auto_respawn_check("issue-9002/demo", self._entry(), {})
         respawn_or_cap.assert_not_called()
 
@@ -221,7 +221,7 @@ class AutoRespawnConsultsDeliverableGateTest(unittest.TestCase):
         entry = self._entry()
         state = {}
         with mock.patch.object(spawn, "_subject_has_deliverable", return_value=None), \
-             mock.patch.object(spawn, "_respawn_or_cap") as respawn_or_cap:
+             mock.patch.object(spawn, "_record_dead_session") as respawn_or_cap:
             self._confirm_crash(state, entry)
             respawn_or_cap.assert_not_called()
             spawn._auto_respawn_check("issue-9002/demo", entry, state)
@@ -234,7 +234,7 @@ class AutoRespawnConsultsDeliverableGateTest(unittest.TestCase):
         entry = self._entry()
         state = {}
         with mock.patch.object(spawn, "_subject_has_deliverable", return_value=None), \
-             mock.patch.object(spawn, "_respawn_or_cap") as respawn_or_cap:
+             mock.patch.object(spawn, "_record_dead_session") as respawn_or_cap:
             self._confirm_crash(state, entry)
             respawn_or_cap.assert_not_called()
             spawn._auto_respawn_check("issue-9002/demo", entry, state)
@@ -249,7 +249,7 @@ class AutoRespawnConsultsDeliverableGateTest(unittest.TestCase):
         state = {}
         stderr = io.StringIO()
         with mock.patch.object(spawn, "_subject_has_deliverable", return_value=found), \
-             mock.patch.object(spawn, "_respawn_or_cap") as respawn_or_cap, \
+             mock.patch.object(spawn, "_record_dead_session") as respawn_or_cap, \
              mock.patch.object(spawn, "ledger_write") as ledger_write, \
              contextlib.redirect_stderr(stderr):
             self._confirm_crash(state, entry)
@@ -272,7 +272,7 @@ class AutoRespawnConsultsDeliverableGateTest(unittest.TestCase):
         state = {}
         stderr = io.StringIO()
         with mock.patch.object(spawn, "_subject_has_deliverable", return_value=found), \
-             mock.patch.object(spawn, "_respawn_or_cap") as respawn_or_cap, \
+             mock.patch.object(spawn, "_record_dead_session") as respawn_or_cap, \
              contextlib.redirect_stderr(stderr):
             self._confirm_crash(state, entry)
             respawn_or_cap.assert_not_called()

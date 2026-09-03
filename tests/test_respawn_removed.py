@@ -24,7 +24,7 @@ Layers, all against real entry points (only `gh`/network is mocked at the
 process boundary, the idiom of tests/test_respawn_deliverable_gate.py,
 whose crash fixture this file reuses):
 
-  1. `NoRelaunchTest` -- `_respawn_or_cap()` never starts a process, on
+  1. `NoRelaunchTest` -- `_record_dead_session()` never starts a process, on
      either of its two triggers, and stays idempotent per dead session.
   2. `StillReportsTest` -- the same call still comments, still writes its
      ledger event, and leaves workspace and log untouched.
@@ -101,7 +101,7 @@ class _CrashFixture(unittest.TestCase):
              mock.patch.object(spawn, "_spawn_one") as spawn_one, \
              mock.patch.object(spawn, "ledger_write") as ledger:
             gh_run.return_value = subprocess.CompletedProcess([], 0, "", "")
-            lifecycle._respawn_or_cap(
+            lifecycle._record_dead_session(
                 self.key, str(self.work), 9101, "demo", str(self.log),
                 77, {} if state is None else state, trigger, False)
         return spawn_one, ledger, gh_run
@@ -184,7 +184,7 @@ class StillReportsTest(_CrashFixture):
              mock.patch.object(spawn, "ledger_write"), \
              contextlib.redirect_stderr(buf):
             gh_run.return_value = subprocess.CompletedProcess([], 1, "", "boom")
-            lifecycle._respawn_or_cap(self.key, str(self.work), 9101, "demo",
+            lifecycle._record_dead_session(self.key, str(self.work), 9101, "demo",
                                       str(self.log), 77, {},
                                       "watchdog-observed-crashed", False)
         self.assertIn("게시 실패", buf.getvalue())

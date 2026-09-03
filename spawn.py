@@ -492,7 +492,7 @@ _pr_list_call_ok = lifecycle._pr_list_call_ok
 _prune_orphaned_sidecars = lifecycle._prune_orphaned_sidecars
 _remediation_merge_sweep = lifecycle._remediation_merge_sweep
 _respawn_fingerprint = lifecycle._respawn_fingerprint
-_respawn_or_cap = lifecycle._respawn_or_cap
+_record_dead_session = lifecycle._record_dead_session
 _respawn_state_load = lifecycle._respawn_state_load
 _respawn_state_save = lifecycle._respawn_state_save
 _roster_reconcile_unreported = lifecycle._roster_reconcile_unreported
@@ -856,7 +856,7 @@ def _reconcile_pr_expected_missing(expected: dict, observed: dict, verdict: str 
     """이슈 #1678: `pr-expected-missing` 죽음을 무조건 `respawn` 으로
     이름 붙이던 걸 `recovery_policy.classify_from_state()` 의 판정으로
     바꾼다 — cap 과 실패-서명 반복을 보고 ESCALATE 할지, 커밋 유무로
-    RESPAWN_IDENTICAL/RESPAWN_WITH_HANDOFF 를 가릴지 결정한다.
+    LOST_NOTHING/LOST_WORK_NEEDS_HANDOFF 를 가릴지 결정한다(이슈 #3267: 이름은 죽음의 모양을 말하지, 재기동을 지시하지 않는다 — 자동 재스폰은 #3264 에서 제거됐다).
 
     `expected["issue"]` 가 없으면(카운터를 걸 (issue, role) 이 없음) 상태
     파일을 건드리지 않고 커밋 유무만으로 즉시 판정한다 — 기존
@@ -881,8 +881,8 @@ def _reconcile_pr_expected_missing(expected: dict, observed: dict, verdict: str 
             issue, skill, has_commit=has_commit, has_pr=False,
             failure_signature=failure_signature, death_id=death_id, **kwargs)
     else:
-        policy_verdict = ("RESPAWN_WITH_HANDOFF" if has_commit
-                           else "RESPAWN_IDENTICAL")
+        policy_verdict = (recovery_policy.LOST_WORK_NEEDS_HANDOFF
+                           if has_commit else recovery_policy.LOST_NOTHING)
 
     if policy_verdict == "ESCALATE":
         return [{
@@ -894,7 +894,7 @@ def _reconcile_pr_expected_missing(expected: dict, observed: dict, verdict: str 
         "kind": "pr-expected-missing",
         "detail": f"{base_detail} policy={policy_verdict}",
         "next_action": "respawn",
-        "handoff": policy_verdict == "RESPAWN_WITH_HANDOFF",
+        "handoff": policy_verdict == recovery_policy.LOST_WORK_NEEDS_HANDOFF,
     }]
 
 

@@ -1,6 +1,6 @@
 """Bounded-retry recovery policy for a dead worker session (issue #1670).
 
-Pure `classify()` decides RESPAWN_IDENTICAL / RESPAWN_WITH_HANDOFF / ESCALATE from
+Pure `classify()` decides LOST_NOTHING / LOST_WORK_NEEDS_HANDOFF / ESCALATE from
 already-observed failure signals — it consumes the same kind of death signal
 spawn.py's `reconcile()` already emits (`pr-expected-missing` -> respawn), it does
 not re-derive git/gh state itself. `classify_from_state()` is a thin wrapper that
@@ -13,8 +13,21 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-RESPAWN_IDENTICAL = "RESPAWN_IDENTICAL"
-RESPAWN_WITH_HANDOFF = "RESPAWN_WITH_HANDOFF"
+# Issue #3267: these say what the death LOOKS LIKE, not what to do about
+# it. Automatic respawn was removed in #3264, and a name that promises an
+# action the code no longer takes is the same misleading-report defect this
+# repository keeps finding -- except the misleading report is the
+# identifier. A reader during the 2026-09-03 incident concluded from these
+# names that RESPAWN_IDENTICAL was "unwired, so not a runaway path"; it is
+# wired (spawn.py, watchdog.py), and the safety argument happened to be
+# right for an unrelated reason.
+LOST_NOTHING = "LOST-NOTHING"
+LOST_WORK_NEEDS_HANDOFF = "LOST-WORK-NEEDS-HANDOFF"
+
+# Old names kept as aliases so any importer still resolves (the issue's
+# must-not). They are the same objects, not a second vocabulary.
+RESPAWN_IDENTICAL = LOST_NOTHING
+RESPAWN_WITH_HANDOFF = LOST_WORK_NEEDS_HANDOFF
 ESCALATE = "ESCALATE"
 
 DEFAULT_CAP = 2
@@ -33,14 +46,14 @@ def classify(failure_signals: dict) -> str:
       failure_signature: str|None — 이번 죽음의 실패 서명
       last_failure_signature: str|None — 직전 죽음의 실패 서명
 
-    반환: RESPAWN_IDENTICAL | RESPAWN_WITH_HANDOFF | ESCALATE.
+    반환: LOST_NOTHING | LOST_WORK_NEEDS_HANDOFF | ESCALATE.
 
     규칙 순서(이슈 acceptance 그대로):
     1. respawn_count >= cap, 또는 같은 실패 서명 반복 -> ESCALATE — 같은 벽에
        또 부딪히는 blind respawn 을 막는다(토큰 낭비 방지).
-    2. 커밋은 있는데 PR 이 없음(has-commit-no-PR) -> RESPAWN_WITH_HANDOFF —
+    2. 커밋은 있는데 PR 이 없음(has-commit-no-PR) -> LOST_WORK_NEEDS_HANDOFF —
        이슈 #1660 케이스: 작업은 했는데 push/PR 을 못 낸 채 죽음.
-    3. 커밋 전 죽음(pre-first-commit) -> RESPAWN_IDENTICAL — 잃을 작업이 없으니
+    3. 커밋 전 죽음(pre-first-commit) -> LOST_NOTHING — 잃을 작업이 없으니
        같은 브리프로 그대로 다시 시작.
     """
     cap = failure_signals.get("cap", DEFAULT_CAP)
@@ -58,9 +71,9 @@ def classify(failure_signals: dict) -> str:
         return ESCALATE
 
     if failure_signals.get("has_commit"):
-        return RESPAWN_WITH_HANDOFF
+        return LOST_WORK_NEEDS_HANDOFF
 
-    return RESPAWN_IDENTICAL
+    return LOST_NOTHING
 
 
 def _state_path(state_dir: Path, issue, skill: str) -> Path:

@@ -117,7 +117,7 @@ class CrashVerdictRaceTest(unittest.TestCase):
 
     def test_auto_respawn_check_does_not_respawn_in_flight_completion(self):
         entry = self._entry(wrapper_pid=os.getpid())
-        with mock.patch.object(spawn, "_respawn_or_cap") as respawn_or_cap:
+        with mock.patch.object(spawn, "_record_dead_session") as respawn_or_cap:
             spawn._auto_respawn_check("issue-2874/demo", entry, {})
         respawn_or_cap.assert_not_called()
 
@@ -126,10 +126,10 @@ class CrashVerdictRaceTest(unittest.TestCase):
         # triggers a respawn by itself -- it takes
         # RESPAWN_CONSECUTIVE_CONFIRMATIONS consecutive ticks agreeing
         # (same shared state dict, as roster_watchdog() would pass tick
-        # to tick) before _respawn_or_cap() is ever called.
+        # to tick) before _record_dead_session() is ever called.
         entry = self._entry(wrapper_pid=DEAD_PID)
         state = {}
-        with mock.patch.object(spawn, "_respawn_or_cap") as respawn_or_cap:
+        with mock.patch.object(spawn, "_record_dead_session") as respawn_or_cap:
             for _ in range(spawn.RESPAWN_CONSECUTIVE_CONFIRMATIONS - 1):
                 spawn._auto_respawn_check("issue-2874/demo", entry, state)
             respawn_or_cap.assert_not_called()

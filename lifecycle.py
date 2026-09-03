@@ -369,11 +369,17 @@ def _classify_workspace_completion(work: str, skill: str) -> str:
     return "unfinished"
 
 
-def _respawn_or_cap(key: str, work: str, issue: int, skill: str, log: str,
+def _record_dead_session(key: str, work: str, issue: int, skill: str, log: str,
                     session_start_ts, state: dict, trigger: str,
                     single_phase: bool) -> None:
     """Crash observation for one dead session. Records the death, posts the
     human-intervention comment, and relaunches nothing.
+
+    Issue #3267: renamed from `_record_dead_session()`, which promised two
+    things it no longer does. `_respawn_or_cap` remains as an alias at the
+    bottom of this module so existing callers keep resolving; the state
+    file and event type keep their names deliberately, for readers that
+    already parse them.
 
     Automatic respawn was removed on 2026-09-03 (see the block below for
     the incident and the numbers). The function keeps its name and its
@@ -486,7 +492,7 @@ def _subject_has_deliverable(root: Path, subject: str) -> dict | None:
 
 def _auto_respawn_check(key: str, entry: dict, state: dict) -> None:
     """죽은 로스터 엔트리 하나에 대해 `crashed` 인지 판정하고, 그렇다면
-    `_respawn_or_cap()` 에 넘긴다. `stalled`/`normal`/`in-progress` 는
+    `_record_dead_session()` 에 넘긴다. `stalled`/`normal`/`in-progress` 는
     재스폰을 걸지 않는다(관찰-전용 계약 유지, 이슈 #132) — 다만 `stalled`
     는 최초 1회 이슈 코멘트로 남는다(이슈 #325): 재스폰하지 않는 것과
     아무도 모르게 재스폰하지 않는 것은 다르다.
@@ -494,7 +500,7 @@ def _auto_respawn_check(key: str, entry: dict, state: dict) -> None:
     이슈 #2874: `entry.get("wrapper_pid")` 를 `session_end_verdict()` 에
     넘긴다 — 이게 없으면 이 함수가 `_build_expected`/`_build_observed`
     (reconcile 의 입력)와 서로 다른 판정을 내릴 수 있다: 자식(claude) pid
-    만 보고 crashed 로 오판한 채로 바로 `_respawn_or_cap()` 을 태우면,
+    만 보고 crashed 로 오판한 채로 바로 `_record_dead_session()` 을 태우면,
     이미 성공적으로 끝나 PR 까지 낸 세션이 재스폰된다(실측: 이슈 #2874)."""
     work = entry.get("work")
     issue = entry.get("issue")
@@ -511,9 +517,9 @@ def _auto_respawn_check(key: str, entry: dict, state: dict) -> None:
     # 않는다 — 단일 verdict 스냅샷을 믿고 살아있는 세션 둘을 죽인 사례가
     # 실측됐다(이슈 본문). 같은 key 에 대해 연속으로
     # `RESPAWN_CONSECUTIVE_CONFIRMATIONS`번 "crashed"가 나와야 아래
-    # `_respawn_or_cap()`에 도달한다 — 중간에 다른 verdict 가 끼면(진짜
+    # `_record_dead_session()`에 도달한다 — 중간에 다른 verdict 가 끼면(진짜
     # 살아있었거나 판정이 흔들린 것) 카운터를 0 으로 되돌린다. 카운터는
-    # `_respawn_or_cap()`이 이미 쓰는 `state`(respawn_state.json)에
+    # `_record_dead_session()`이 이미 쓰는 `state`(respawn_state.json)에
     # 얹는다 — 새 저장소를 만들지 않는다.
     confirm_prior = state.get(key, {})
     if verdict != "crashed":
@@ -583,7 +589,7 @@ def _auto_respawn_check(key: str, entry: dict, state: dict) -> None:
     # 쪽보다, 예전처럼 two-phase 로 두고 사람의 승인을 다시 받게 하는
     # 쪽이 안전하다.
     single_phase = entry.get("single_phase", False)
-    _sp._respawn_or_cap(key, work, issue, skill, entry.get("log", ""), start_ts, state,
+    _sp._record_dead_session(key, work, issue, skill, entry.get("log", ""), start_ts, state,
                     "watchdog-observed-crashed", single_phase)
 
 
@@ -597,7 +603,7 @@ def _self_trigger_respawn(outcome: str, roster_key: str, work: str, issue: int,
     남는다)했지만 outcome 이 미커밋-방치 신호(`uncommitted-work`/
     `failed-no-commit`) 이거나, 원인 없이 그냥 멈춘 `silent-failure` 일 때,
     다음 `spawn.py watchdog` 틱을 기다리지 않고 지금 이 자리에서 바로
-    `_respawn_or_cap()` 을 부른다.
+    `_record_dead_session()` 을 부른다.
 
     `roster_watchdog()`/`_auto_respawn_check()` 의 crashed 판정은 이
     경우에 절대 못 걸린다 — `roster_remove()` 가 `proc.wait()` 직후
@@ -612,7 +618,7 @@ def _self_trigger_respawn(outcome: str, roster_key: str, work: str, issue: int,
 
     이슈 #2969 follow-up (독립 검증 두 건, PR #2999/#3000 이 동일하게 지적):
     이 경로는 `_auto_respawn_check()` 의 `RESPAWN_CONSECUTIVE_CONFIRMATIONS`
-    게이트를 거치지 않고 `_respawn_or_cap()` 을 바로 부른다 — 의도적이다,
+    게이트를 거치지 않고 `_record_dead_session()` 을 바로 부른다 — 의도적이다,
     빠뜨린 게 아니다. 그 게이트가 막는 위험(아직 살아있는 세션을 흔들리는
     외부 관측 하나만 믿고 죽었다고 오판)이 여기엔 없다: 이 함수는
     `_spawn_one()` 자신이 `proc.wait()` 로 프로세스 종료를 이미 직접
@@ -621,7 +627,7 @@ def _self_trigger_respawn(outcome: str, roster_key: str, work: str, issue: int,
     `roster_remove()` 가 이 시점 이미 로스터 엔트리를 지웠으므로, 어떤
     후속 워치독 틱도 이 키를 다시 볼 수 없다 — 카운터를 채우려 기다리면
     영원히 안 채워진다. 이 경로의 실제 안전장치는 다른 층에 이미 있다:
-    `_respawn_or_cap()` 자신의 `RESPAWN_MAX_ATTEMPTS`/`RESPAWN_ABSOLUTE_MAX`
+    `_record_dead_session()` 자신의 `RESPAWN_MAX_ATTEMPTS`/`RESPAWN_ABSOLUTE_MAX`
     상한(무한 재스폰 방지)과, 여기 도달하기 전 `silent-failure` 를 이미
     걸러내는 `fail_closed_downgrade()`(위 문단) — crash_confirms 카운터를
     이 경로에도 붙이면 카운터가 절대 2 에 못 미쳐(두 번째 관측이 원천
@@ -636,7 +642,7 @@ def _self_trigger_respawn(outcome: str, roster_key: str, work: str, issue: int,
     # 이슈 #2574 disposition: 고정값 아님, 상속 — `single_phase` 는 이
     # 세션 자신을 스폰했던 처분 그대로다(spawn.py 호출부가 자기 자신의
     # `_spawn_one()` 파라미터를 그대로 넘긴다).
-    _sp._respawn_or_cap(roster_key, work, issue, skill, log, session_start_ts, state,
+    _sp._record_dead_session(roster_key, work, issue, skill, log, session_start_ts, state,
                     trigger, single_phase)
 
 
@@ -2017,3 +2023,4 @@ def sweep_orphans_cli(wb: Path, dry_run: bool) -> int:
             suffix = " (실제로 지워짐)"
         print(f"[sweep-orphans] {verb} {total}건{suffix}")
     return 1 if failed else 0
+

@@ -5,14 +5,14 @@ occasion by trusting a single verdict. `lifecycle._auto_respawn_check()`
 (reached via `spawn._auto_respawn_check`) now requires
 `RESPAWN_CONSECUTIVE_CONFIRMATIONS` consecutive "crashed" verdicts, sharing
 the same `respawn_state.json`-backed dict a real watchdog tick would pass
-tick to tick, before it ever calls `_respawn_or_cap()`.
+tick to tick, before it ever calls `_record_dead_session()`.
 
 Test derivation (test-derivation skill, BVA route on the confirmation
 counter): the boundary is the counter crossing
 RESPAWN_CONSECUTIVE_CONFIRMATIONS.
-  - N-1 consecutive "crashed" calls -> _respawn_or_cap NOT called (below
+  - N-1 consecutive "crashed" calls -> _record_dead_session NOT called (below
     boundary)
-  - N consecutive "crashed" calls -> _respawn_or_cap called exactly once
+  - N consecutive "crashed" calls -> _record_dead_session called exactly once
     (at boundary)
   - a non-"crashed" verdict between two "crashed" calls resets the streak
     -- N-1 crashed, 1 non-crashed, N-1 crashed again must still not reach
@@ -73,7 +73,7 @@ class DestructiveActionRequiresConsecutiveTest(unittest.TestCase):
     def test_destructive_action_requires_consecutive_below_threshold_never_respawns(self):
         entry = self._entry()
         state = {}
-        with mock.patch.object(spawn, "_respawn_or_cap") as respawn_or_cap:
+        with mock.patch.object(spawn, "_record_dead_session") as respawn_or_cap:
             for _ in range(spawn.RESPAWN_CONSECUTIVE_CONFIRMATIONS - 1):
                 spawn._auto_respawn_check("issue-9004/demo", entry, state)
         respawn_or_cap.assert_not_called()
@@ -81,7 +81,7 @@ class DestructiveActionRequiresConsecutiveTest(unittest.TestCase):
     def test_destructive_action_requires_consecutive_at_threshold_respawns_once(self):
         entry = self._entry()
         state = {}
-        with mock.patch.object(spawn, "_respawn_or_cap") as respawn_or_cap:
+        with mock.patch.object(spawn, "_record_dead_session") as respawn_or_cap:
             for _ in range(spawn.RESPAWN_CONSECUTIVE_CONFIRMATIONS):
                 spawn._auto_respawn_check("issue-9004/demo", entry, state)
         respawn_or_cap.assert_called_once()
@@ -93,7 +93,7 @@ class DestructiveActionRequiresConsecutiveTest(unittest.TestCase):
         # bookkeeping -- a fresh dict each call would never reach threshold.
         entry = self._entry()
         state = {}
-        with mock.patch.object(spawn, "_respawn_or_cap") as respawn_or_cap:
+        with mock.patch.object(spawn, "_record_dead_session") as respawn_or_cap:
             spawn._auto_respawn_check("issue-9004/demo", entry, state)
             respawn_or_cap.assert_not_called()
             self.assertGreaterEqual(state["issue-9004/demo"]["crash_confirms"], 1)
@@ -108,7 +108,7 @@ class DestructiveActionRequiresConsecutiveTest(unittest.TestCase):
         entry = self._entry()
         in_flight_entry = self._entry(wrapper_pid=os.getpid())
         state = {}
-        with mock.patch.object(spawn, "_respawn_or_cap") as respawn_or_cap:
+        with mock.patch.object(spawn, "_record_dead_session") as respawn_or_cap:
             for _ in range(spawn.RESPAWN_CONSECUTIVE_CONFIRMATIONS - 1):
                 spawn._auto_respawn_check("issue-9004/demo", entry, state)
             spawn._auto_respawn_check("issue-9004/demo", in_flight_entry, state)
