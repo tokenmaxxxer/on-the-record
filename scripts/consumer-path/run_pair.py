@@ -169,10 +169,15 @@ def seed_arm_credentials(home: Path, source: Path | None = None) -> dict:
     cross-check (HOME, MUSTER_SKILL_REPO match against the manifest) is
     unaffected -- this function touches neither.
 
-    Fails visibly, not silently: a missing source credential is reported
-    as `{"seeded": False, "reason": ...}` for `run_pair()` to fail closed
-    on, never a dispatch that proceeds anyway and fails later with a
-    misleading "hooks don't fire" message."""
+    Fails visibly, not silently: a missing source credential, or an
+    `OSError` during the copy itself (permission denied, disk full, or
+    `source` disappearing between the existence check and the read), is
+    reported as `{"seeded": False, "reason": ...}` for `run_pair()` to
+    fail closed on -- silent-failure-audit found the first version of
+    this function left the copy unguarded, which would have crashed
+    `run_pair()` with a bare traceback instead of the same clean
+    excluded-with-a-reason shape every other failure path in this module
+    already returns (`ArmPreparationError`, `VerificationFailure`)."""
     source = source or Path(os.environ.get("HOME", "")) / ".claude" / ".credentials.json"
     if not source.is_file():
         return {"seeded": False,
@@ -180,10 +185,14 @@ def seed_arm_credentials(home: Path, source: Path | None = None) -> dict:
                           "this launcher's own session is not logged in, "
                           "cannot seed an arm HOME with it"}
     dest_dir = home / ".claude"
-    dest_dir.mkdir(parents=True, exist_ok=True)
     dest = dest_dir / ".credentials.json"
-    dest.write_bytes(source.read_bytes())
-    dest.chmod(0o600)
+    try:
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes(source.read_bytes())
+        dest.chmod(0o600)
+    except OSError as exc:
+        return {"seeded": False,
+                "reason": f"could not seed credential into {dest}: {exc}"}
     return {"seeded": True, "source": str(source)}
 
 

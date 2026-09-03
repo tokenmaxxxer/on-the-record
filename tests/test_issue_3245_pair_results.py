@@ -143,6 +143,27 @@ def test_seed_arm_credentials_missing_source_reports_not_seeded(tmp_path):
     assert "reason" in result and result["reason"]
 
 
+def test_seed_arm_credentials_copy_oserror_reports_not_seeded_not_raised(
+        tmp_path, monkeypatch):
+    """silent-failure-audit: an OSError during the copy itself (not just a
+    missing source) must be reported the same fail-closed way, never
+    propagate as a bare traceback out of run_pair()'s dict comprehension."""
+    source = tmp_path / "source-credentials.json"
+    source.write_text('{"claudeAiOauth": {}}')
+    home = tmp_path / "home"
+    home.mkdir()
+
+    def _boom(self, *a, **kw):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(Path, "write_bytes", _boom)
+    result = run_pair.seed_arm_credentials(home, source=source)
+    assert result == {"seeded": False,
+                       "reason": f"could not seed credential into "
+                                 f"{home / '.claude' / '.credentials.json'}: "
+                                 "disk full"}
+
+
 def test_run_pair_fails_closed_when_operator_credential_missing(
         monkeypatch, tmp_path, populated_skills_root):
     """silent-failure-audit: a missing operator credential must exclude
