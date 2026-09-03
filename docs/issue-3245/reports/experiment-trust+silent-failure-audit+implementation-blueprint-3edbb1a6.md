@@ -335,6 +335,45 @@ scope allowed; what remains belongs to a future round, per Open findings
 #1 and #3's resolution paths, not an open loop this session is still
 working.
 
+## Addendum (mid-round amendment)
+
+amendments-reconciled: issuecomment-5520311995 (orchestrator, posted
+after this session's main body was written) — two findings, read this
+session via `gh api repos/tokenmaxxxer/on-the-record/issues/comments/5520311995`.
+
+**Correction accepted, pair 1 downgraded from tie to `unscored`:** the
+comment is right. §3's `h2_evaluation.json` fed the PR *bodies* (pointers
+to the work) into `evaluate_pair.py`, not the brief files the PRs
+actually add — the evaluator's own reasoning ("without visibility into
+the linked brief.md content...") already said as much, and this session
+did not act on that signal before reporting a tie. Per the round's own
+must-not (do not score a pair whose comparison cannot distinguish the
+arms), pair 1's H2 is corrected here to `unscored`, not a tie — the 7-7
+"indistinguishable" result in "Next steps" above measured two pointers
+to unread work, not the work. This session's remaining turn budget does
+not allow fetching and re-scoring the actual brief content
+(`gh pr diff`/head-ref checkout for PRs #29/#30) this round; that is the
+concrete next step for whoever picks this back up, not a re-guess from
+this session.
+
+**Pair 2's status, clarified, not contradicted:** the comment describes
+`_assets/02-onboarding-experiment/result.json` as recording
+`dispatch-failed` for both arms. That is not what the committed file
+(`9060451849ffbae4c17d82e9e5c6ce9841eac691:docs/issue-3245/_assets/02-onboarding-experiment/result.json`)
+shows — both arms show `dispatch_returncode: 0` (dispatch succeeded)
+and `status: "watch-failed"` (the `--session` bug diagnosed and fixed in
+§1/§4 above). Diagnosed already, per the comment's own request, before
+this addendum was written -- not an environmental dispatch failure, a
+code bug in this launcher, now fixed. No pair-2 re-run happened this
+session regardless (turn budget), consistent with the comment's caution
+against re-running blind.
+
+**Corrected tally:** wins 0, ties 0 (pair 1's apparent tie retracted),
+losses 0, unscored 2 (pair 1: wrong-input scoring, corrected here;
+pair 2: evidence lost to bugs fixed mid-round). n=0 of the registered
+n>=5 floor scored this round, now stated without even the one
+misleading tie.
+
 ## Skill verdicts
 
 canonical: this session's own tool transcript, this turn -- every Skill
