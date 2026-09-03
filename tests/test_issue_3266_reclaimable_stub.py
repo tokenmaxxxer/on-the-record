@@ -21,9 +21,11 @@ reclaimable.
 """
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 
@@ -117,6 +119,36 @@ the CPU spike reported in the parent issue.
 
 The fixed-interval retry was saturating a single core under sustained
 upstream 503s; exponential backoff caps the steady-state rate.
+"""
+
+_HEADING_ONLY_REPORT = """---
+issue: 9999
+role: crashed-role-abc12345
+author: crashed-role-abc12345
+skills: crashed-role (skill-repository(c05de12))
+verifies_subject: false
+loop_state: in-progress
+upstream:
+  - path: <docs/issue-9999/... or code path this record builds on>
+    sha:
+---
+
+### Root cause: retry loop lacked backoff, saturating one core under sustained 503s
+"""
+
+_BARE_HASH_LINE_REPORT = """---
+issue: 9999
+role: crashed-role-abc12345
+author: crashed-role-abc12345
+skills: crashed-role (skill-repository(c05de12))
+verifies_subject: false
+loop_state: in-progress
+upstream:
+  - path: <docs/issue-9999/... or code path this record builds on>
+    sha:
+---
+
+#3266 was the root cause, confirmed via bisect against commit abc123.
 """
 
 
@@ -218,6 +250,78 @@ class ReclaimableStubTest(unittest.TestCase):
                        "test setup must reproduce a falsely-ahead commit")
         reason, detail = self._clean_state(w)
         self.assertIsNone(reason, detail)
+
+    def test_fifo_report_path_is_never_deleted_and_does_not_hang(self):
+        """PR #3271 finding: a named pipe at a report path has no content
+        to classify -- `_report_stub_has_no_content()` must fail closed
+        (kept, not reclaimable) without blocking on the read that a FIFO
+        with no writer never satisfies. Exercised directly against the
+        predicate, not through `_workspace_clean_state()`: `git ls-files
+        -z --others` itself never lists a FIFO (verified separately), so
+        the full clean-sweep path never reaches this file at all -- the
+        predicate must still fail closed if it is ever handed one, e.g.
+        by a future caller that lists the filesystem directly."""
+        w = self.root / "fifo"
+        _make_pushed_repo(w)
+        reports = w / "docs" / "issue-9999" / "reports"
+        reports.mkdir(parents=True)
+        os.mkfifo(reports / "crashed-role-abc12345.md")
+        result: dict = {}
+
+        def _run():
+            result["value"] = spawn._report_stub_has_no_content(
+                w, "docs/issue-9999/reports/crashed-role-abc12345.md")
+
+        t = threading.Thread(target=_run, daemon=True)
+        t.start()
+        t.join(timeout=5)
+        self.assertFalse(t.is_alive(),
+                          "_report_stub_has_no_content must not hang on a FIFO")
+        self.assertFalse(result["value"], "a FIFO must fail closed (kept)")
+
+    def test_symlink_escaping_workspace_to_stub_shaped_target_is_never_deleted(self):
+        """PR #3271 finding: a report-path symlink pointing outside the
+        workspace must be judged on the workspace's own file, not on
+        whatever the external target looks like -- even when that target
+        happens to be stub-shaped."""
+        w = self.root / "symlink-escape"
+        _make_pushed_repo(w)
+        _seed_harness_scaffolding(w)
+        reports = w / "docs" / "issue-9999" / "reports"
+        reports.mkdir(parents=True)
+        outside = self.root / "outside"
+        outside.mkdir()
+        external_stub = outside / "external.md"
+        external_stub.write_text(_EMPTY_REPORT_STUB)
+        os.symlink(external_stub, reports / "crashed-role-abc12345.md")
+        reason, detail = self._clean_state(w)
+        self.assertEqual(reason, "dirty", detail)
+
+    def test_content_expressed_only_in_a_heading_is_never_reclaimed(self):
+        """PR #3272 finding: a report whose only body line is a sub-heading
+        carrying the actual finding is real prose, not disposable heading
+        noise -- it must not be misread as a content-free stub."""
+        w = self.root / "heading-only"
+        _make_pushed_repo(w)
+        _seed_harness_scaffolding(w)
+        reports = w / "docs" / "issue-9999" / "reports"
+        reports.mkdir(parents=True)
+        (reports / "crashed-role-abc12345.md").write_text(_HEADING_ONLY_REPORT)
+        reason, detail = self._clean_state(w)
+        self.assertEqual(reason, "dirty", detail)
+
+    def test_bare_hash_prefixed_line_is_never_reclaimed(self):
+        """PR #3272 finding: a line starting with `#` that is not valid
+        ATX heading syntax (no space after the hash) is body prose, not
+        heading noise -- it must not be misread as a content-free stub."""
+        w = self.root / "bare-hash"
+        _make_pushed_repo(w)
+        _seed_harness_scaffolding(w)
+        reports = w / "docs" / "issue-9999" / "reports"
+        reports.mkdir(parents=True)
+        (reports / "crashed-role-abc12345.md").write_text(_BARE_HASH_LINE_REPORT)
+        reason, detail = self._clean_state(w)
+        self.assertEqual(reason, "dirty", detail)
 
 
 if __name__ == "__main__":

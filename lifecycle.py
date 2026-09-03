@@ -846,14 +846,26 @@ def _is_harness_scaffolding_path(rel: str) -> bool:
 _REPORT_STUB_PATH_RE = re.compile(r"^docs/issue-\d+/reports/.*\.md$")
 
 
+_STRUCTURAL_HEADING_RE = re.compile(r"^#{1,2}(?:\s.*)?$")
+
+
 def _report_stub_has_no_content(w: Path, rel: str) -> bool:
     """이슈 #3266: `docs/issue-<n>/reports/**/*.md` 파일에서 frontmatter,
-    마크다운 헤딩(`#...`), HTML 주석(`<!-- fill: ... -->`), 스켈레톤
-    기본값 `None.` 을 걷어내고도 실질 텍스트가 하나도 안 남으면 True —
-    세션이 시작할 때 만들고 한 글자도 못 채운 채 죽은 리포트 스텁의 모양
-    그대로다(`~/.tokenmaxxxer/salvage-20260903` 코퍼스로 검증: 리포트 성격
-    파일 151개 중 131개가 이 모양이었고, 나머지 20개 — consult-log 한
-    줄짜리까지 포함 — 는 전부 이 필터를 통과하는 실질 프로즈가 남았다).
+    구조용 마크다운 헤딩(레코드 스켈레톤 자신의 `#`/`##` 제목 줄 — 예:
+    `## What was done`), HTML 주석(`<!-- fill: ... -->`), 스켈레톤 기본값
+    `None.` 을 걷어내고도 실질 텍스트가 하나도 안 남으면 True — 세션이
+    시작할 때 만들고 한 글자도 못 채운 채 죽은 리포트 스텁의 모양 그대로다
+    (`~/.tokenmaxxxer/salvage-20260903` 코퍼스로 검증: 리포트 성격 파일
+    151개 중 131개가 이 모양이었고, 나머지 20개 — consult-log 한 줄짜리까지
+    포함 — 는 전부 이 필터를 통과하는 실질 프로즈가 남았다).
+
+    이슈 #3266 라운드 2 (PR #3272 독립검증): `#` 로 시작하는 줄을 전부
+    걷어내면 헤딩 텍스트 자체에 실제 소견이 실린 줄(`### Root cause: ...`)
+    이나 헤딩 문법조차 아닌 bare `#`-접두 줄(`#3266 was the root cause,
+    ...`)까지 같이 사라져 실제 내용을 스텁으로 오판했다 — 레코드 스켈레톤은
+    항상 레벨 1(문서 제목)·레벨 2(섹션 제목)만 구조용으로 쓰고 그 텍스트는
+    항상 일반 제목이다, 레벨 3 이상이나 `#` 뒤에 공백 없이 바로 글자가
+    오는 줄은 스켈레톤 구조가 아니라 본문이므로 걷어내지 않는다.
 
     `_classify_workspace_completion()`(위, 이슈 #1982)의 "frontmatter 만
     걷어내고 strip() 이 truthy 면 finished"보다 훨씬 엄격하게 걷어낸다 —
@@ -864,8 +876,37 @@ def _report_stub_has_no_content(w: Path, rel: str) -> bool:
     문제 그대로 재현된다."""
     if not _REPORT_STUB_PATH_RE.match(rel):
         return False
+    path = w / rel
     try:
-        text = (w / rel).read_text(encoding="utf-8", errors="replace")
+        st = path.lstat()
+    except OSError:
+        return False
+    if stat.S_ISLNK(st.st_mode):
+        # 이슈 #3266 라운드 2 (PR #3271 독립검증): 워크스페이스 밖을
+        # 가리키는 심볼릭 링크는 그 바깥 파일의 내용이 아니라 "이
+        # 워크스페이스 자신의 파일에 내용이 있는가"를 물어야 한다 —
+        # 컨테인먼트를 먼저 확인하지 않으면 외부 타겟이 우연히 스텁
+        # 모양이라는 이유만으로 워크스페이스 자신의 파일을 삭제 대상으로
+        # 오판한다.
+        try:
+            target = path.resolve(strict=True)
+        except OSError:
+            return False
+        try:
+            target.relative_to(w.resolve(strict=True))
+        except ValueError:
+            return False
+        try:
+            st = target.stat()
+        except OSError:
+            return False
+    if not stat.S_ISREG(st.st_mode):
+        # 이슈 #3266 라운드 2 (PR #3271 독립검증): FIFO 는 OSError 를
+        # 던지지 않고 read_text() 를 무기한 블록시킨다 -- 열기 전에
+        # 정규 파일인지부터 확인해 그 read 자체를 시도하지 않는다.
+        return False
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
     except OSError:
         return False
     if text.startswith("---"):
@@ -876,7 +917,9 @@ def _report_stub_has_no_content(w: Path, rel: str) -> bool:
     text = re.sub(r"<!--.*?-->", "", text, flags=re.DOTALL)
     for line in text.splitlines():
         s = line.strip()
-        if not s or s.startswith("#") or s == "None.":
+        if not s or s == "None.":
+            continue
+        if _STRUCTURAL_HEADING_RE.match(s):
             continue
         return False
     return True
