@@ -72,9 +72,20 @@ def _skill_repo_managed_root() -> Path | None:
         skills_dir = d / "skills"
         if _sp._skill_repo_valid(skills_dir):
             if not _sp._pull_is_fresh(d):
-                _sp._run_net(["git", "-C", str(d), "pull", "-q", "--ff-only"],
-                         "[skill-repo] pull")
-                _sp._mark_pulled(d)
+                # silent-failure-audit round 2 (issue #3231): `_run_net`
+                # itself deliberately `sys.exit()`s on a real
+                # `TimeoutExpired` (plumbing.py, issue #285 P5 -- correct
+                # for its orchestrator callers, which must halt). This
+                # function's own contract is the opposite: best-effort,
+                # never sys.exit, always return -- a slow-but-alive
+                # network on a refresh pull must fall back to the
+                # already-valid corpus below, not crash the caller.
+                try:
+                    _sp._run_net(["git", "-C", str(d), "pull", "-q", "--ff-only"],
+                             "[skill-repo] pull")
+                    _sp._mark_pulled(d)
+                except SystemExit as exc:
+                    print(f"[skill-repo] pull failed: {exc}", file=sys.stderr)
             # 이슈 #2616: core_root() 와 완전히 같은 TTL-pull 패턴(같은
             # _pull_is_fresh/_run_net/_mark_pulled) 을 쓰는 관리 클론이라
             # 같은 결함(TTL 창 안에서 실제 stale 여부와 무관하게 "현재"로
@@ -110,7 +121,7 @@ def _skill_repo_managed_root() -> Path | None:
                     shutil.rmtree(d, ignore_errors=True)
                 os.replace(str(tmp_dir), str(d))
                 _sp._mark_pulled(d)
-        except OSError as exc:
+        except (OSError, SystemExit) as exc:
             # silent-failure-audit (issue #3231): a bare `except OSError:
             # pass` here would discard exactly the detail a stuck fetch
             # needs to be diagnosable -- git missing, `runs/` read-only,
@@ -119,6 +130,19 @@ def _skill_repo_managed_root() -> Path | None:
             # ensure_skill_corpus_cli() otherwise, forever, with nothing
             # distinguishing a transient network hiccup from a permanent
             # local misconfiguration.
+            #
+            # silent-failure-audit round 2 (issue #3231): `SystemExit` is
+            # added here alongside `OSError` because `_run_net` (called
+            # just above with `timeout=CLONE_TIMEOUT`) itself deliberately
+            # `sys.exit()`s on a real `TimeoutExpired` -- correct for its
+            # orchestrator callers (plumbing.py, issue #285 P5), but this
+            # function's own contract (and `ensure_skill_corpus_cli()`'s,
+            # which calls it transitively) is best-effort: never raise,
+            # always report and return. Without this clause a slow-but-
+            # alive network (a real timeout, not a fast refusal) escaped
+            # as an uncaught `SystemExit` and killed the whole
+            # `spawn.py ensure-skills` process -- reproduced live in
+            # PR #3238's verification record, section 5.
             print(f"[skill-repo] fetch failed: {type(exc).__name__}: {exc}",
                   file=sys.stderr)
         finally:

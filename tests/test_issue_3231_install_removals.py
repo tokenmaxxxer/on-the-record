@@ -63,6 +63,16 @@ def _fake_clone_full(args, label, timeout=None, **kwargs):
     return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
 
 
+def _fake_net_timeout(args, label, timeout=None, **kwargs):
+    """Reproduces `plumbing._run_net`'s own real behavior on a genuine
+    `subprocess.TimeoutExpired` -- it does not raise `TimeoutExpired`
+    itself, it calls `sys.exit(...)` (plumbing.py:51-52), which raises
+    `SystemExit`. A slow-but-alive network (not a fast refusal, not fully
+    offline) hits this path, not `_fake_clone_interrupted`'s non-zero
+    exit."""
+    raise SystemExit(f"{label}: 시간초과({int(timeout or 0)}s) — 네트워크를 확인하라")
+
+
 def _fake_clone_interrupted(args, label, timeout=None, **kwargs):
     """A clone process killed mid-transfer: some content already landed in
     the scratch directory (git had started checking out files) but the
@@ -237,6 +247,37 @@ class EnsureSkillCorpusCliTest(unittest.TestCase):
         with mock.patch.object(spawn, "_run_net", side_effect=_fake_clone_interrupted):
             rc = spawn.ensure_skill_corpus_cli()
         self.assertEqual(rc, 0)
+
+    def test_never_fails_the_session_on_a_real_network_timeout(self):
+        # Round 2 (issue #3231, PR #3238 finding 1): a real
+        # `subprocess.TimeoutExpired` on the clone makes `_run_net` itself
+        # `sys.exit()` (plumbing.py:51-52) -- a slow-but-alive network,
+        # distinct from `_fake_clone_interrupted`'s fast non-zero exit.
+        # `ensure_skill_corpus_cli()`'s own contract ("best-effort, always
+        # returns 0") must hold here too, not just on a fast refusal.
+        with mock.patch.object(spawn, "_run_net", side_effect=_fake_net_timeout):
+            rc = spawn.ensure_skill_corpus_cli()
+            self.assertIsNone(
+                spawn._skill_repo_root(),
+                "a timed-out clone must not resolve to a corpus",
+            )
+        self.assertEqual(rc, 0)
+        leftover = list((self.root / "runs" / "rulebooks").glob("skill-repository.tmp-*"))
+        self.assertEqual(leftover, [], f"stale scratch directory left behind: {leftover}")
+
+    def test_stale_pull_timeout_falls_back_to_the_existing_valid_corpus(self):
+        # A real timeout on the TTL-refresh `pull` (not the initial
+        # `clone`) must not discard an already-valid corpus -- offline
+        # reuse (requirement 1) applies to a hung refresh exactly as it
+        # does to a fully offline machine.
+        with mock.patch.object(spawn, "_run_net", side_effect=_fake_clone_full):
+            first = spawn._skill_repo_root()
+        self.assertIsNotNone(first)
+        with mock.patch.object(spawn, "_pull_is_fresh", return_value=False), \
+             mock.patch.object(spawn, "_run_net", side_effect=_fake_net_timeout):
+            second = spawn._skill_repo_root()
+        self.assertEqual(second, first)
+        self.assertTrue((second / "example-skill").is_dir())
 
 
 class InstallPreconditionNoticesHookTest(unittest.TestCase):

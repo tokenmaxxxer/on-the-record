@@ -309,9 +309,9 @@ CHECKS = [
             "$TOKENMAXXXER_RULEBOOKS/skill-repository) or set "
             "MUSTER_SKILL_REPO=<checkout>/skills."
         ),
-        "source": "skills.py:122-137 (_skill_repo_root: MUSTER_SKILL_REPO env > sibling clone > managed clone)",
+        "source": "skills.py:155-170 (_skill_repo_root: MUSTER_SKILL_REPO env > sibling clone > managed clone)",
         "line_anchors": [
-            ("skills.py", 122, "def _skill_repo_root"),
+            ("skills.py", 155, "def _skill_repo_root"),
         ],
     },
     {
@@ -322,9 +322,9 @@ CHECKS = [
             "spawned session should resolve locally -- no plugin install "
             "populates this directory."
         ),
-        "source": "skills.py:408 (tier3 = _sp._local_skill_dirs(home / \".claude\" / \"skills\"))",
+        "source": "skills.py:441 (tier3 = _sp._local_skill_dirs(home / \".claude\" / \"skills\"))",
         "line_anchors": [
-            ("skills.py", 408, '_local_skill_dirs(home / ".claude" / "skills")'),
+            ("skills.py", 441, '_local_skill_dirs(home / ".claude" / "skills")'),
         ],
     },
     {
