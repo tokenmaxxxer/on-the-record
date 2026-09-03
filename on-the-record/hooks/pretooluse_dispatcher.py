@@ -315,6 +315,8 @@ GATES = [
          payload_env="ACG_PAYLOAD", crash=CLOSED2),
     dict(script="approval-gate.sh", tools=WRITE_TOOLS,
          payload_env="AG_PAYLOAD", setup=_pre_approval, crash=CLOSED2),
+    dict(script="silent-failure-lint-guard.sh", tools=WRITE_TOOLS,
+         payload_env="SFLG_PAYLOAD", crash=CLOSED2),
 ]
 
 DISPATCHED_SCRIPTS = tuple(g["script"] for g in GATES)

@@ -1001,6 +1001,99 @@ def subprocess_call_shape_divergence_gate(d: Path, cfg: dict) -> list[str]:
     return subprocess_call_shape_divergence(d / "work")
 
 
+_SF_HUNK_RE = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@")
+
+
+def _sf_added_line_numbers(work: Path, rel_path: str) -> "set[int] | None":
+    """Line numbers `rel_path`'s current (HEAD) content gained since
+    `BASE`, read straight off a `-U0` unified diff's own hunk headers
+    (`@@ -a,b +c,d @@`) -- no external diff library. `None` when the diff
+    itself could not be read or hangs (fail toward reporting, same
+    posture as `changed_files()`)."""
+    try:
+        p = subprocess.run(
+            ["git", "-C", str(work), "diff", "-U0", f"{BASE}...HEAD", "--", rel_path],
+            capture_output=True, text=True, timeout=30)
+    except subprocess.TimeoutExpired:
+        return None
+    if p.returncode != 0:
+        return None
+    added: set[int] = set()
+    for line in p.stdout.splitlines():
+        m = _SF_HUNK_RE.match(line)
+        if not m:
+            continue
+        start = int(m.group(1))
+        count = int(m.group(2)) if m.group(2) is not None else 1
+        added.update(range(start, start + count))
+    return added
+
+
+def silent_failure_new_findings(work: Path) -> list[str]:
+    """issue #3228 round 2: reports (never `PreToolUse`-blocks --
+    `silent-failure-lint-guard.sh` is the blocking layer, SF001-only,
+    write-time-fragment-scoped) every `scripts/lint/silent_failure.py`
+    SF001/SF002/SF003 finding that lands on a line this PR's diff
+    actually ADDED, plus any `.py` file the diff touched that the lint
+    cannot even read or parse.
+
+    Diff-scoped, not repo-wide, on purpose: PR #3237 measured the lint
+    unfiltered over the whole repo at 594 findings across 535 of 617
+    existing subprocess call sites (86.7%) -- a repo-wide check in this
+    position would block (or, here, spuriously flag) nearly every PR
+    regardless of what it actually touches, the opposite of "unwritable
+    for a NEW site" issue #3228 asks for. Restricting to lines the diff
+    itself added (`git diff -U0`'s own hunk headers, `_sf_added_line_
+    numbers`) means a PR that never touches an existing bad call site
+    stays clean; only a PR that writes this shape fresh gets flagged.
+
+    Honest limit on where this actually runs (see `ci_reachable_gates`'s
+    own reachability scan of this file's neighbor `gates/ci.py`):
+    `gates/ci.py`'s real merge-blocking `--closes-only` entry point never
+    reaches anything after its `closes_only` guard, and this call sits
+    alongside the pre-existing `subprocess_call_shape_divergence` in
+    that same unreached position -- both surface only through `board.py`
+    `gate_report()`'s post-session advisory report to a human, not a
+    merge block. This function does not change that; it inherits the
+    same already-established advisory posture `subprocess_call_shape_
+    divergence` has, not a new claim of enforcement.
+    """
+    import sys as _sys
+    _lint_dir = Path(__file__).resolve().parent.parent / "scripts" / "lint"
+    if str(_lint_dir) not in _sys.path:
+        _sys.path.insert(0, str(_lint_dir))
+    import silent_failure
+
+    try:
+        files = [f for f in changed_files(work) if f.endswith(".py")]
+    except RuntimeError as e:
+        return [str(e)]
+
+    bad = []
+    for rel in files:
+        f = work / rel
+        if not f.exists():
+            continue  # deleted by this diff -- nothing left to scan
+        result = silent_failure.scan_file(f)
+        added = _sf_added_line_numbers(work, rel)
+        if result.error is not None:
+            bad.append(f"{rel}: silent_failure lint 이 읽거나 파싱할 수 없다 "
+                       f"(diff 가 건드린 파일) -- {result.error}")
+            continue
+        if added is None:
+            bad.append(f"{rel}: diff 를 읽을 수 없어 새로 추가된 줄을 판별할 "
+                       "수 없다 (fail closed)")
+            continue
+        for finding in result.findings:
+            if finding.line in added:
+                bad.append(finding.render())
+    return bad
+
+
+def silent_failure_new_findings_gate(d: Path, cfg: dict) -> list[str]:
+    return silent_failure_new_findings(d / "work")
+
+
 _SIBLING_MARKER = re.compile(
     r"^\s*#\s*sibling\s*:\s*([\w.]+)\s*$", re.MULTILINE)
 _DEF_LINE = re.compile(r"^\s*(?:async\s+)?(?:def|class)\s+(\w+)", re.MULTILINE)
@@ -1186,7 +1279,8 @@ ALL = {"writeset": writeset, "deps": deps,
        "sibling_mention_check": sibling_mention_check_gate,
        "ci_reachable_gates": ci_reachable_gates,
        "schema_field_orphans": schema_field_orphans,
-       "ui_evidence_gate": ui_evidence_gate_gate}
+       "ui_evidence_gate": ui_evidence_gate_gate,
+       "silent_failure_new_findings": silent_failure_new_findings_gate}
 
 
 def _claims_gate(d: Path, cfg: dict) -> list[str]:
