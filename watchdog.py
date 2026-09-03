@@ -214,6 +214,81 @@ def _pr_state_from_index(pr_index: dict, branch: str) -> int | None:
     return pr.get("number") if pr.get("state") in ("OPEN", "MERGED") else None
 
 
+def _session_tick_lines(key: str, entry: dict, state: dict | None,
+                         verdict: str | None) -> list[str]:
+    """One session's raw activity for this tick (#3293 stage 2).
+
+    Reuses the workspace-scan timestamp `_session_progress_state()` already
+    stamped into `state`, so the window shown is exactly the window the
+    verdict was computed over -- a second, independently-derived window
+    would let the files listed and the verdict disagree.
+
+    Any failure returns no lines. The `[poll-report]` line above has already
+    printed, so a broken payload costs detail, never the tick itself.
+    """
+    try:
+        sys.path.insert(0, str(ROOT / "gates"))
+        import tick_payload  # noqa: PLC0415
+        import session_progress  # noqa: PLC0415
+    except Exception:
+        return []
+    since = None
+    if state is not None:
+        since = state.get(f"{key}:last_workspace_scan_ts")
+    if since is None:
+        since = time.time() - POLL_INTERVAL_SEC
+    calls = []
+    log = entry.get("log")
+    if log:
+        # `recent_tool_calls()` returns (tool_name, command) tuples; reading
+        # them as dicts is what made the first live tick of this payload say
+        # "calls: none readable" for a session that had made calls. The
+        # narrower `except` below is deliberate -- a broad one turned that
+        # type error into a plausible-looking empty result, which is the
+        # exact failure shape this payload exists to stop hiding.
+        try:
+            calls = list(session_progress.recent_tool_calls(
+                Path(log), tick_payload.MAX_CALLS_PER_SESSION * 2))
+        except (OSError, ValueError):
+            calls = []
+    try:
+        return tick_payload.session_block(key, entry, since,
+                                          verdict or "UNKNOWN", calls)
+    except Exception:
+        return []
+
+
+def _idle_tick_lines(root: Path) -> list[str]:
+    """The outstanding-work summary an empty-roster tick carries (#3293).
+
+    Reads only what is already cached for this tick -- no new `gh` calls, no
+    new polling loop. A lookup that fails contributes nothing rather than a
+    guess, and the caller's own empty-state line still reaches the
+    orchestrator either way.
+    """
+    try:
+        sys.path.insert(0, str(ROOT / "gates"))
+        import tick_payload  # noqa: PLC0415
+    except Exception:
+        return []
+    outstanding: dict[str, list] = {}
+    try:
+        board, _meta = _board_read(root)
+    except Exception:
+        board = None
+    if isinstance(board, dict):
+        try:
+            prs = [str(k) for k in (_board_pr_index(root) or {})]
+            if prs:
+                outstanding["open PRs"] = prs
+        except Exception:
+            pass
+    try:
+        return tick_payload.idle_block(outstanding)
+    except Exception:
+        return []
+
+
 def _session_progress_state(key: str, entry: dict, state: dict | None) -> str:
     """`gates/session_progress.py` wrapper (issue #3275).
 
@@ -2269,6 +2344,14 @@ def roster_watchdog(auto_respawn: bool = False, all_scope: bool = False,
                   f"이 세션 소유 아님 — 재스폰하지 않음")
     if not d:
         print("돌고 있는 스킬 세션 없음")
+        # Issue #3293 stage 2: an idle tick carries what is still
+        # outstanding. "The goal is done" and "nobody started the next
+        # thing" both look like an empty roster, and the orchestrator
+        # cannot tell them apart from silence -- so name the open work, or
+        # say plainly that none was found, which is itself the signal that
+        # the monitor can be stopped.
+        for line in _idle_tick_lines(root):
+            print(line)
         if not anomaly_count:
             print("이상 신호 없음")
         return anomaly_count
@@ -2507,6 +2590,12 @@ def roster_watchdog(auto_respawn: bool = False, all_scope: bool = False,
         health = _sp.diagnose_health(key, e, state=state, anomalies=anomalies, root=root)
         # 이슈 #782 스코프-확장: dedup 원장과 무관하게 매 틱 상태를 보고한다.
         print(f"[poll-report] {key}: {health['state']} — {health['detail']}")
+        # Issue #3293 stage 2: every tick also carries what this session
+        # actually did -- files written, commands run -- unsuppressed, so
+        # the orchestrator judges intervention from the work rather than
+        # from a state label that says HEALTHY while the artifact is wrong.
+        for line in _session_tick_lines(key, e, state, health["state"]):
+            print(line)
         if health["state"] is not None and health["state"] not in (
                 "HEALTHY-CONFIRMED", "HEALTHY-UNCONFIRMED"):
             issue_n, skill_n = issue_skill_key(e)

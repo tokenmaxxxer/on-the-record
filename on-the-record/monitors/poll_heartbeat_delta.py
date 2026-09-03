@@ -40,6 +40,17 @@ BULLET_RE = re.compile(r"^\s+-\s")
 # survive the line-keyed dedup below even on a tick whose text otherwise
 # matches a previous tick's, since the loop restarts (exec) right after
 # emitting it and a suppressed line would be the last thing an operator saw.
+# Issue #3293 stage 2: the raw per-tick payload -- `[session]`/`[idle]`
+# headers and their indented body -- is exempt from every filter in this
+# file. Not because those lines are anomalies, but because the payload's
+# whole purpose is to let the orchestrator judge from the work itself,
+# and a filter that drops it when it looks like last tick's would restore
+# exactly the blindness it exists to remove: three defects on 2026-09-03
+# rode through ticks whose lines were identical and correct. The exemption
+# keys on the payload's shape (a payload tag, or the indentation that only
+# a payload body uses) rather than on a list of message kinds, so a new
+# payload line does not have to be remembered here to survive.
+PAYLOAD_RE = re.compile(r"^\[(session|idle)\]|^ {4,}\S")
 ALWAYS_RE = re.compile(
     r"^\[(resume|orphaned|watchdog-crash|watchdog-stale-code|awaiting-approval)\]"
     r"|STALLED|CRASHED|COMPLETED|watcher-dead",
@@ -249,7 +260,8 @@ def main() -> None:
                 changed = prev_line != line
         else:
             changed = prev_lines.get(key) != line
-        if first_tick or changed or ALWAYS_RE.search(line):
+        if (first_tick or changed or ALWAYS_RE.search(line)
+                or PAYLOAD_RE.match(line)):
             to_emit.append(line)
 
     # issue #2180: drop surfaced-issue bookkeeping for issues no longer
