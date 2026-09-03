@@ -56,6 +56,27 @@ under-refusal case plus its three PR #3248 variants, all still declining;
 `SingleFailedUnrelatedActionResidualRiskTest` documents, rather than
 hides, the one gap the narrow fix does not close.
 
+issue #3229 round 4 (PR #3255 boundary-probe finding, item 3): round 3's
+structural triple (episode length 1, covered, `is_error=True`) alone
+could not tell "shall I proceed anyway?" apart from "should I instead
+force-push origin main?" -- both suppressed, and the second is exactly
+the kind of thing an operator would want surfaced. Round 4 adds
+`delegation_state._ask_names_wider_scope()`, a narrow, closed-set,
+disclosed check for literal scope-escalation markers absent from what
+was actually attempted (see its own module comment for the full
+reasoning and limits).
+`ScopeWideningAfterFailedActionLeavesStopStandingTest` adds four
+independently-shaped cases proving the new check; every case round 3's
+own verification (PR #3255) confirmed sound is re-proven unchanged
+(re-run live, not re-derived, per this round's own task) --
+`CoveredCleanEpisodeSuppressesTest`, `GenuineRedundantAskSuppressesTest`,
+`AdjacencyDoesNotImplyCoverageTest`, and `PriorReviewMustNotVariantsTest`
+below are untouched by this round.
+`SingleFailedUnrelatedActionResidualRiskTest` is narrowed (its ask no
+longer happens to use a recognized marker) so it keeps demonstrating the
+still-open residual (an unrelated pivot phrased without any of the
+closed-set markers) rather than a sub-shape round 4 now closes.
+
 Classification (Step 3a): every requirement here is High -- a bug in
 either direction (suppressing a genuine escalation, or never suppressing
 anything and leaving the live-wiring gap PR #3220 named) is exactly what
@@ -73,8 +94,10 @@ Traceability:
   - covered-episode adjacency is not enough    -> AdjacencyDoesNotImplyCoverageTest,
     to refuse the stop on its own               PriorReviewMustNotVariantsTest
     (round 2, PR #3236 #4; reconfirmed round 3)
+  - scope-widening ask after a failed covered  -> ScopeWideningAfterFailedActionLeavesStopStandingTest
+    action does not suppress (round 4, PR #3255)
   - single-failed-action residual risk,        -> SingleFailedUnrelatedActionResidualRiskTest
-    disclosed not hidden (round 3)
+    disclosed not hidden (round 3, narrowed round 4)
   - issue's must-not (never fire w/ no grant)  -> test_no_grant_produces_no_stderr_either
   - "says so where an operator can see it"     -> test_every_other_decline_produces_a_stderr_reason
   - retry-loop safety (issue #1725 contract)   -> test_stop_hook_active_never_suppresses_even_when_covered
@@ -319,28 +342,143 @@ class GenuineRedundantAskSuppressesTest(_HookHarness):
         self.assertEqual(out.get("decision"), "block")
 
 
+class ScopeWideningAfterFailedActionLeavesStopStandingTest(_HookHarness):
+    """issue #3229 round 4 (PR #3255 boundary-probe finding, item 3): the
+    scope-widening shape the residual-risk disclosure had understated --
+    a single covered action fails, and the ask that follows names a
+    MATERIALLY WIDER scope than what was attempted (a destructive flag,
+    a protected target never granted). Round 3's structural triple
+    (episode length 1, covered, `is_error=True`) alone could not tell
+    this apart from a genuine same-scope retry; round 4 adds
+    `_ask_names_wider_scope()` (see delegation_state.py's own module
+    comment above it) as an additional, narrow, closed-set check keyed
+    off literal escalation markers absent from the attempted resource.
+    Four independently-shaped cases below, all must leave the stop
+    standing."""
+
+    def test_narrow_push_denied_then_force_push_to_main_leaves_stop_standing(self):
+        self._grant([{"tool": "Bash", "resource": "git push*", "repo": "*"}])
+        ask = "Push was denied (non-fast-forward) -- should I instead run git push --force origin main?"
+        _write_log(self.transcript, [
+            _assistant_tool_use_event(self.now, "Bash", "command", "git push origin issue-x"),
+            _tool_result_event(self.now + timedelta(seconds=1), "t1", is_error=True,
+                                text="! [rejected] issue-x -> issue-x (non-fast-forward)"),
+            _assistant_text_event(self.now + timedelta(seconds=2), ask),
+        ])
+        r = self._run(ask)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(r.stdout, "",
+                          "a force-push to main was never attempted -- the narrow "
+                          "git push grant does not extend to it just because the "
+                          "verb rhymes")
+        self.assertIn("materially wider scope", r.stderr)
+
+    def test_deploy_command_failed_then_force_publish_to_production_leaves_stop_standing(self):
+        self._grant([{"tool": "Bash", "resource": "npm run deploy", "repo": "*"}])
+        ask = "The deploy failed -- should I skip verification and force-publish straight to production instead?"
+        _write_log(self.transcript, [
+            _assistant_tool_use_event(self.now, "Bash", "command", "npm run deploy"),
+            _tool_result_event(self.now + timedelta(seconds=1), "t1", is_error=True,
+                                text="deploy failed: connection timed out"),
+            _assistant_text_event(self.now + timedelta(seconds=2), ask),
+        ])
+        r = self._run(ask)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(r.stdout, "")
+
+    def test_write_blocked_then_ask_about_writing_to_master_branch_leaves_stop_standing(self):
+        self._grant([{"tool": "Write", "resource": "*", "repo": "*"}])
+        ask = "The write was blocked by a guard -- should I instead commit this straight onto master?"
+        _write_log(self.transcript, [
+            _assistant_tool_use_event(self.now, "Write", "file_path", "output.log"),
+            _tool_result_event(self.now + timedelta(seconds=1), "t1", is_error=True,
+                                text="write blocked: guard denied this path"),
+            _assistant_text_event(self.now + timedelta(seconds=2), ask),
+        ])
+        r = self._run(ask)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(r.stdout, "")
+
+    def test_bash_command_failed_then_ask_with_dash_f_flag_leaves_stop_standing(self):
+        self._grant([{"tool": "Bash", "resource": "rm build/*", "repo": "*"}])
+        ask = "rm was denied by a guard -- should I retry with -f to skip the confirmation?"
+        _write_log(self.transcript, [
+            _assistant_tool_use_event(self.now, "Bash", "command", "rm build/stale.o"),
+            _tool_result_event(self.now + timedelta(seconds=1), "t1", is_error=True,
+                                text="rm: permission denied"),
+            _assistant_text_event(self.now + timedelta(seconds=2), ask),
+        ])
+        r = self._run(ask)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(r.stdout, "")
+
+
+class MarkerAlreadyGrantedDoesNotFalselyWidenTest(_HookHarness):
+    """issue #3229 round 4 (test-derivation skill, decision-table gap):
+    `_ask_names_wider_scope()` only counts a marker as widening when it
+    is present in the ask but ABSENT from the attempted resource -- a
+    marker already present on BOTH sides (the grant/attempt already used
+    it) must not falsely trip the new check, or round 4 would itself
+    over-refuse a genuine retry the same way round 2's blanket removal
+    did. Two independently-shaped controls: a marker present on both
+    sides (still suppresses), and a marker-shaped substring inside an
+    unrelated word (word-boundary guard, still suppresses)."""
+
+    def test_force_flag_already_in_the_attempted_command_does_not_widen(self):
+        self._grant([{"tool": "Bash", "resource": "git push --force origin release-x", "repo": "*"}])
+        ask = "The force push was rejected -- should I retry that same force push again?"
+        _write_log(self.transcript, [
+            _assistant_tool_use_event(self.now, "Bash", "command", "git push --force origin release-x"),
+            _tool_result_event(self.now + timedelta(seconds=1), "t1", is_error=True,
+                                text="remote rejected"),
+            _assistant_text_event(self.now + timedelta(seconds=2), ask),
+        ])
+        r = self._run(ask)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        out = json.loads(r.stdout)
+        self.assertEqual(out.get("decision"), "block",
+                          "the --force marker was already part of the granted, attempted "
+                          "resource -- repeating it in the ask is not a widened scope")
+
+    def test_word_boundary_false_positive_guard_maintain_is_not_main(self):
+        self._grant([{"tool": "Bash", "resource": "git push*", "repo": "*"}])
+        ask = "Push was denied -- I'll maintain the current branch and just retry, shall I proceed anyway?"
+        _write_log(self.transcript, [
+            _assistant_tool_use_event(self.now, "Bash", "command", "git push origin issue-x"),
+            _tool_result_event(self.now + timedelta(seconds=1), "t1", is_error=True,
+                                text="remote rejected"),
+            _assistant_text_event(self.now + timedelta(seconds=2), ask),
+        ])
+        r = self._run(ask)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        out = json.loads(r.stdout)
+        self.assertEqual(out.get("decision"), "block",
+                          "'maintain' contains the substring 'main' but is not the word "
+                          "'main' -- the word-boundary regex must not treat it as a "
+                          "protected-target marker")
+
+
 class SingleFailedUnrelatedActionResidualRiskTest(_HookHarness):
-    """issue #3229 round 3: the named, disclosed residual risk of the
-    single-failed-action suppression path (see delegation_state.py's own
-    module comment above `_live_stop_decision_body` for the full
-    reasoning). `is_error=True` on the episode's one action is a
-    structural fact about what the TOOL returned; it is NOT proof the
-    ask that follows is about THAT action. A single covered action that
-    fails for a reason unrelated to the ask, immediately followed by a
-    pivot to a completely different, dangerous, never-attempted topic,
-    is NOT distinguishable from the genuine redundant-ask shape by
-    anything this transcript format carries -- round 3 accepts this as a
-    real, narrower-than-round-2 gap rather than hiding it. This test
-    documents the actual (not hoped-for) behavior: it suppresses, which
-    is the wrong answer for THIS specific case, though the round-3
-    record explains why this composite shape is comparatively rare next
-    to round 2's defect surface (any covered episode, regardless of
-    success/failure)."""
+    """issue #3229 round 3 (narrowed, not closed, by round 4): the named,
+    disclosed residual risk of the single-failed-action suppression path
+    (see delegation_state.py's own module comment above
+    `_live_stop_decision_body` for the full reasoning). `is_error=True`
+    on the episode's one action is a structural fact about what the TOOL
+    returned; it is NOT proof the ask that follows is about THAT action.
+    Round 4 closes the sub-shape where the unrelated pivot happens to use
+    one of `_ask_names_wider_scope()`'s literal markers (see
+    `ScopeWideningAfterFailedActionLeavesStopStandingTest` above) -- but
+    a pivot to a completely different, dangerous, never-attempted topic
+    phrased WITHOUT any of those markers is still not distinguishable
+    from the genuine redundant-ask shape by anything this transcript
+    format carries. This test documents the actual (not hoped-for)
+    behavior for that surviving, narrower gap: it suppresses, which is
+    the wrong answer for THIS specific case."""
 
     def test_single_failed_covered_action_then_unrelated_dangerous_ask_still_suppresses(self):
         self._grant([{"tool": "Bash", "resource": "*", "repo": "*"}])
-        ask = ("Never mind that -- should I force-push origin main to roll "
-               "the release branch back to the previous tag instead?")
+        ask = ("Never mind that -- should I go ahead and roll the release "
+               "branch back to the previous tag instead?")
         _write_log(self.transcript, [
             _assistant_tool_use_event(self.now, "Bash", "command", "curl https://example.com/status"),
             _tool_result_event(self.now + timedelta(seconds=1), "t1", is_error=True,
@@ -350,8 +488,9 @@ class SingleFailedUnrelatedActionResidualRiskTest(_HookHarness):
         r = self._run(ask)
         self.assertEqual(r.returncode, 0, r.stderr)
         # Documented residual risk, not the desired outcome: this DOES
-        # suppress, even though the ask (force-push origin main) has
-        # nothing to do with the failed curl call that precedes it.
+        # suppress, even though the ask (rolling back the release branch)
+        # has nothing to do with the failed curl call that precedes it,
+        # and names no marker `_ask_names_wider_scope()` recognizes.
         out = json.loads(r.stdout)
         self.assertEqual(out.get("decision"), "block",
                           "if this assertion ever starts failing, the residual risk "

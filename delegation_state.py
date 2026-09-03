@@ -61,6 +61,7 @@ from __future__ import annotations
 import fnmatch
 import json
 import os
+import re
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -959,6 +960,97 @@ def _episode_boundary(events: list[dict], event_index: int) -> int:
 # covered, vs. covered-but-uncorrelated) for `--audit`/operator
 # visibility, per "every path that declines to act says so where an
 # operator can see it."
+# issue #3229 round 4 (PR #3255 boundary-probe finding, item 3): round
+# 3's single-failed-action suppression path (below) checked only the
+# STRUCTURAL triple -- episode length 1, covered, `is_error=True` -- and
+# never looked at the ask itself, so "shall I proceed anyway?" and
+# "should I instead run `git push --force origin main`?" were
+# indistinguishable: both suppressed. The second is exactly the shape an
+# operator would want surfaced -- the failed action was a narrow,
+# granted `git push`; the ask proposes something with a materially
+# larger blast radius (a destructive flag, a protected target) that was
+# never attempted, and the grant does not extend to it just because the
+# verb rhymes.
+#
+# This is deliberately NOT a return to the four lexical rounds this
+# module's own top-of-file docstring documents (PR #3097/#3102/#3107/
+# #3122): those tried to classify the WHOLE ask -- "is this redundant or
+# a genuine escalation" -- from ordinary conversational verbs a
+# redundant ask and a genuine escalation share equally ("shall I go
+# ahead" means nothing on its own, in either direction). This check is
+# narrower on purpose: it never asks what the sentence MEANS, only
+# whether it contains one of a small, closed set of well-known
+# scope-widening MARKERS (a force flag, a named production/protected
+# target) that were not already present in the resource the operator's
+# manifest covered and the tool already attempted and failed at. A
+# marker already present in the attempted resource (the delegated
+# command itself already targeted "main") is not "wider" -- only a NEW
+# marker, absent from what was attempted, counts.
+#
+# Named, disclosed limit, not hidden: this is a closed catalog, not a
+# classifier. An escalation phrased without any of these literal
+# markers ("should I try a different approach instead?", silently
+# meaning something far more dangerous) still suppresses -- unchanged
+# from round 3's own named residual (see
+# `SingleFailedUnrelatedActionResidualRiskTest`). The catalog stays
+# deliberately small and tied to the concrete shape PR #3255
+# demonstrated (a destructive flag, a protected branch/environment
+# name), not grown into a general sentiment classifier -- growing it
+# into one is exactly the failure mode the four lexical rounds above
+# already measured as unfixable by narrowing (PR #3122's own 50%
+# false-positive rate on genuine escalations reusing a retained idiom).
+#
+# issue #3229 round 4 (test-derivation skill, decision-table review):
+# markers are matched by CONCEPT (a compiled pattern per marker), not by
+# exact literal phrase, so "git push --force origin x" (flag-then-target
+# word order) and an ask saying "that force push" (word-then-flag order)
+# are recognized as the SAME marker rather than two different literal
+# strings that happen not to line up -- an earlier draft matched literal
+# phrases ("--force" vs "force push") and spuriously flagged an
+# already-granted `--force` command as "widened" just because the ask
+# phrased it the other way around.
+#
+# A bare `\bforce\b` word-boundary match was tried and rejected: PR
+# #3255's own G1d case ("The edit was rejected as locked -- should I
+# force it through?") uses "force" as a plain intensifier, not a named
+# destructive flag, and round 3's verification already confirmed that
+# ask as a genuine redundant retry that must keep suppressing -- a bare
+# word match would wrongly re-flag it. `_FORCE_NEAR_PUSH_OR_PUBLISH`
+# instead requires "force" to sit within a few words of "push"/
+# "publish" (either order), which catches "force-push"/"force publish"/
+# "that force push" without catching "force it through".
+_FORCE_FLAG_PATTERN = re.compile(r"--force\b|(?<![\w-])-f(?![\w-])", re.IGNORECASE)
+_FORCE_NEAR_PUSH_OR_PUBLISH = re.compile(
+    r"\bforce\W+(?:\w+\W+){0,3}(?:push|publish)\b"
+    r"|\b(?:push|publish)\W+(?:\w+\W+){0,3}force\b",
+    re.IGNORECASE)
+_SCOPE_ESCALATION_MARKER_PATTERNS = (
+    _FORCE_FLAG_PATTERN,
+    _FORCE_NEAR_PUSH_OR_PUBLISH,
+    re.compile(r"\bmain\b", re.IGNORECASE),
+    re.compile(r"\bmaster\b", re.IGNORECASE),
+    re.compile(r"\bproduction\b", re.IGNORECASE),
+    re.compile(r"\bprod\b", re.IGNORECASE),
+)
+
+
+def _ask_names_wider_scope(ask_text: str, attempted_resource: str) -> bool:
+    """True iff `ask_text` matches a scope-escalation marker (see the
+    module comment above) that `attempted_resource` does NOT also match
+    -- i.e. the ask names something with a larger blast radius than what
+    was actually attempted and failed. Checked case-insensitively and by
+    concept (a compiled pattern per marker), not by literal phrase, so
+    word-order differences between the ask and the attempted command
+    don't spuriously trip this. A marker matching BOTH sides does not
+    count as newly widening the scope, since the operator's own manifest
+    already had to cover that resource for `is_covered()` to have
+    matched it in the first place."""
+    return any(
+        pattern.search(ask_text) and not pattern.search(attempted_resource)
+        for pattern in _SCOPE_ESCALATION_MARKER_PATTERNS
+    )
+
+
 def _previous_episode_boundary(events: list[dict], event_index: int) -> int:
     """Index right after the nearest ask-shaped stop strictly before
     `event_index`, or `0` if none is found walking back to the start of
@@ -1056,12 +1148,17 @@ def _live_stop_decision_body(payload: dict, repo: str) -> dict:
       manifest, matches -- covered is not the same as correlated (see
       module comment above), so this still declines UNLESS the episode
       is exactly one action AND that action's own `tool_result` reports
-      `is_error=True` (read via `trajectory_analyzer.tool_result_index()`):
-      a structurally attempted-and-blocked single action is the one
-      shape this transcript format binds soundly enough to suppress on
-      (see the module comment's full reasoning and named residual risk);
-      every other covered-episode shape still declines, with a reason
-      that says so rather than silently doing nothing."""
+      `is_error=True` (read via `trajectory_analyzer.tool_result_index()`)
+      AND the ask does not name a materially wider scope than what was
+      attempted (round 4's `_ask_names_wider_scope()`, see its own
+      module comment above `_previous_episode_boundary` for the full
+      reasoning and its disclosed closed-set limit): a structurally
+      attempted-and-blocked single action, asked about again in terms
+      that do not escalate it, is the one shape this transcript format
+      binds soundly enough to suppress on (see the module comment's full
+      reasoning and named residual risk); every other covered-episode
+      shape still declines, with a reason that says so rather than
+      silently doing nothing."""
     record = load_state(repo)
     if record is None or not in_force(record):
         return {"suppress": False, "reason": None, "hook_output": None}
@@ -1139,6 +1236,26 @@ def _live_stop_decision_body(payload: dict, repo: str) -> dict:
         if result is not None and result.get("is_error"):
             action = episode_actions[0]
             action_desc = f"{action['tool']}:{action['resource']!r}"
+            # issue #3229 round 4 (PR #3255 boundary-probe finding, item
+            # 3): the action's identity matching the grant is not enough
+            # on its own -- see `_ask_names_wider_scope()`'s own module
+            # comment above. An ask that names a materially wider scope
+            # than what was actually attempted is treated the same as
+            # every other "covered but not correlated" shape below, not
+            # suppressed just because the failed action happened to be
+            # covered too.
+            if _ask_names_wider_scope(text, action["resource"]):
+                return {"suppress": False, "hook_output": None, "reason": (
+                    f"delegation-live-check: this turn's one action "
+                    f"({action_desc}) is covered by the recorded standing "
+                    f"delegation (scope: {record.get('scope')!r}) and "
+                    f"failed, but the ask that immediately followed names "
+                    f"a materially wider scope than what was attempted "
+                    f"(issue #3229 round 4) -- a retry proposal after a "
+                    f"denial is not the same situation the grant covered, "
+                    f"so this stop is left standing rather than "
+                    f"suppressed."
+                )}
             return {"suppress": True, "reason": (
                 f"delegation-live-check: this turn's one action "
                 f"({action_desc}) is covered by the recorded standing "
