@@ -577,7 +577,8 @@ def _discover_arm_branch(repo: str, issue: int, retries: int = 6,
 
 def collect_skill_invocation(workspace: Path | None, skill_name: str,
                               repo: str | None = None,
-                              issue: int | None = None) -> dict:
+                              issue: int | None = None,
+                              skills_root: str | None = None) -> dict:
     """H1's manipulation-check evidence (re-operationalized 2026-09-02,
     issue #3127 consult, `runs/consult-logs/20260902T125610799701-
     948846.log`): whether the target skill was actually INVOKED via the
@@ -655,7 +656,7 @@ def collect_skill_invocation(workspace: Path | None, skill_name: str,
                        "never reached a dispatched, log-producing state")
         return {"session_log": None, "mounted": None, "invoked": False,
                 "measured": False, "status": status, "reason": reason}
-    result = _msi.analyze(workspace.name, str(log_path))
+    result = _msi.analyze(workspace.name, str(log_path), skills_root=skills_root)
     if result.get("status") != "measured":
         return {"session_log": str(log_path), "mounted": None,
                 "invoked": False, "measured": False,
@@ -676,7 +677,9 @@ def compute_h1_manipulation(workspace_on: Path | None,
                              skill_name: str | None,
                              repo: str | None = None,
                              issue_on: int | None = None,
-                             issue_off: int | None = None) -> dict:
+                             issue_off: int | None = None,
+                             skills_root_on: str | None = None,
+                             skills_root_off: str | None = None) -> dict:
     """H1 enforcement, re-operationalized 2026-09-02 (issue #3127
     consult, `runs/consult-logs/20260902T125610799701-948846.log`,
     following PR #3172's construct-validity finding).
@@ -711,6 +714,18 @@ def compute_h1_manipulation(workspace_on: Path | None,
     of non-invocation for an arm whose corpus was deliberately made
     empty) and does not by itself fail the gate -- but is recorded, never
     silently conflated with a genuinely-measured non-invocation.
+
+    `skills_root_on`/`skills_root_off` (issue #3288): each arm's own
+    `manifest["arms"][...]["skills_root"]` from `prepare_arms.py`, passed
+    straight through to `collect_skill_invocation()` -> `measure_skill_
+    invocation.analyze()` as the join key for "mounted". Without this, a
+    decoy-design arm mounting from a one-off `/tmp/consumer-path-*` root
+    (never under the hardcoded production skill-registry path `analyze()`
+    falls back to) is reported as `mounted: []` -- an unmeasured-looking
+    empty result for an arm that, in fact, mounted exactly what it was
+    given. `mounted` is diagnostic only here (`differs` gates on `invoked`
+    alone), but a wrong `mounted: []` still misleads anyone reading the
+    per-pair report, which is reason enough to fix it at the source.
     """
     directive_bytes_parity = {
         "on_bytes": collect_directive_bytes(workspace_on),
@@ -730,9 +745,11 @@ def compute_h1_manipulation(workspace_on: Path | None,
                           "invocation-based H1 check"}
 
     on_invocation = collect_skill_invocation(workspace_on, skill_name,
-                                              repo=repo, issue=issue_on)
+                                              repo=repo, issue=issue_on,
+                                              skills_root=skills_root_on)
     off_invocation = collect_skill_invocation(workspace_off, skill_name,
-                                               repo=repo, issue=issue_off)
+                                               repo=repo, issue=issue_off,
+                                               skills_root=skills_root_off)
     base = {"directive_bytes_parity": directive_bytes_parity,
             "on_invocation": on_invocation, "off_invocation": off_invocation}
 
@@ -763,7 +780,9 @@ def gate_pair_on_h1(pair_id: str, workspace_on: Path | None,
                      workspace_off: Path | None, skill_name: str | None = None,
                      compute_h2=None, repo: str | None = None,
                      issue_on: int | None = None,
-                     issue_off: int | None = None) -> dict:
+                     issue_off: int | None = None,
+                     skills_root_on: str | None = None,
+                     skills_root_off: str | None = None) -> dict:
     """Applies the H1 gate to one pair (issue #3127 repair round, defect 2):
     computes H1 via `compute_h1_manipulation()`; if it fails, the pair is
     excluded from H2 and the exclusion + reason are recorded in the
@@ -784,10 +803,18 @@ def gate_pair_on_h1(pair_id: str, workspace_on: Path | None,
     discovering the arm's real PR/branch instead of being reported as
     "never dispatched" on the strength of one guessed path -- see
     `_discover_arm_branch()`'s docstring.
+
+    `skills_root_on`/`skills_root_off` (issue #3288): each arm's own
+    manifest `skills_root`, passed through to `compute_h1_manipulation()`
+    so `mounted` is measured against what that arm actually received
+    instead of a hardcoded production path -- see that function's
+    docstring.
     """
     h1 = compute_h1_manipulation(workspace_on, workspace_off, skill_name,
                                   repo=repo, issue_on=issue_on,
-                                  issue_off=issue_off)
+                                  issue_off=issue_off,
+                                  skills_root_on=skills_root_on,
+                                  skills_root_off=skills_root_off)
     result = {"pair_id": pair_id, "h1": h1, "h1_manipulation_ok": h1["differs"]}
     if not h1["differs"]:
         result["excluded_from_h2"] = True

@@ -575,10 +575,14 @@ def run_pair(pair_id: str, repo: str, skill_name: str, model: str,
                                         deliverable_off, [skill_name],
                                         evaluator_fn=evaluator_fn)
 
+    on_skills_root = [a for a in manifest["arms"] if a["arm"] == "on"][0]["skills_root"]
+    off_skills_root = [a for a in manifest["arms"] if a["arm"] == "off"][0]["skills_root"]
     gated = rcp.gate_pair_on_h1(pair_id, workspace_on, workspace_off,
                                  skill_name=skill_name, compute_h2=compute_h2,
                                  repo=github_slug, issue_on=on_issue,
-                                 issue_off=off_issue)
+                                 issue_off=off_issue,
+                                 skills_root_on=on_skills_root,
+                                 skills_root_off=off_skills_root)
     prepare_arms._cleanup(created_dirs)
     if gated.get("h2") and gated["h2"].get("h2_unavailable"):
         gated["h2_unavailable_reason"] = gated["h2"]["h2_unavailable_reason"]
