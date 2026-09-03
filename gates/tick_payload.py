@@ -72,6 +72,29 @@ def _strip_workspace_cd(command: str) -> str:
     return stripped if stripped else command
 
 
+def repo_of(entry: dict) -> str | None:
+    """Which repository a roster entry belongs to, or None if unclear.
+
+    Roster entries carry no repo field; the workspace directory name does,
+    as `<repo>-issue-<n>-<skills>-<hash>`. Several repositories share one
+    plugin checkout on a machine -- that is normal use -- so a session
+    block with no repository named reads as this orchestrator's own when
+    it may be another's, and the orchestrator's whole job on a wake is to
+    judge ITS sessions.
+
+    Returns None rather than a guess when the name does not have the
+    expected shape: an unattributed block is honest, a wrongly attributed
+    one is worse than none.
+    """
+    work = entry.get("work")
+    if not work:
+        return None
+    name = os.path.basename(str(work).rstrip("/"))
+    marker = "-issue-"
+    idx = name.find(marker)
+    return name[:idx] if idx > 0 else None
+
+
 def changed_files(work: Path, since_ts: float, now: float | None = None
                    ) -> tuple[list[str], int]:
     """(paths changed since `since_ts`, total found before capping).
@@ -124,7 +147,8 @@ def session_block(key: str, entry: dict, since_ts: float, state_verdict: str,
                    recent_calls: list[tuple[str, str]]) -> list[str]:
     """One session's unsuppressed activity, as display lines."""
     work = entry.get("work")
-    lines = [f"[session] {key}: {state_verdict}"]
+    repo = repo_of(entry)
+    lines = [f"[session] {repo + ' ' if repo else ''}{key}: {state_verdict}"]
     if not work:
         lines.append("    (no workspace recorded -- cannot list changes)")
     else:

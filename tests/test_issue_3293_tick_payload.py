@@ -101,6 +101,24 @@ class ItCarriesTheWorkTest(unittest.TestCase):
         self.assertIn("calls: none readable", text)
 
 
+class ItSaysWhoseSessionThisIsTest(unittest.TestCase):
+    """Several repositories share one plugin checkout; that is normal use."""
+
+    def test_the_block_names_the_repository(self):
+        line = tick_payload.session_block(
+            "issue-32/s",
+            {"work": "/h/.tokenmaxxxer/work/video_producer-issue-32-sk-ab"},
+            0, "HEALTHY-CONFIRMED", [])[0]
+        self.assertIn("video_producer", line)
+
+    def test_an_unrecognised_workspace_name_is_left_unattributed(self):
+        # A wrongly attributed block is worse than an unattributed one.
+        self.assertIsNone(tick_payload.repo_of({"work": "/h/work/odd-name"}))
+
+    def test_a_missing_workspace_is_left_unattributed(self):
+        self.assertIsNone(tick_payload.repo_of({}))
+
+
 class TheIdleTickStillSaysSomethingTest(unittest.TestCase):
     def test_it_names_outstanding_work(self):
         text = "\n".join(tick_payload.idle_block({"open PRs": ["11", "12"]}))
