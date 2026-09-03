@@ -58,6 +58,8 @@ import argparse
 import getpass
 import hashlib
 import json
+import os
+import shutil
 import sys
 import tempfile
 import uuid
@@ -115,6 +117,43 @@ def resolve_skill_files(skills_root: Path) -> list[dict]:
         }
         for p in files
     ]
+
+
+def _provision_credentials(home: Path) -> dict:
+    """Copies this launcher's own CLI credentials into `home/.claude/` so
+    a `claude -p` dispatch under this fresh, isolated HOME can
+    authenticate. Copies nothing else -- no plugin registration, no
+    marketplace config -- so the skill-corpus isolation this module
+    exists for is untouched.
+
+    Mirrors spawn.py's own documented reason for never swapping
+    CLAUDE_CONFIG_DIR wholesale (module docstring: doing so ties auth to
+    the config dir and breaks it, "Not logged in") -- a freshly minted
+    HOME needs that same narrow fix, or every arm dispatch fails closed
+    on auth before hooks or the skill manipulation ever come into play
+    (root cause traced live in issue #3245's independent-verification-2:
+    an empty HOME's `claude -p` call fails on "Not logged in" before any
+    tool use, which `spawn.py doctor()`'s coarse PreToolUse-fired check
+    then misreports as "hooks don't fire headless").
+
+    Fails closed: a missing source credentials file is a hard
+    `ArmPreparationError`, not a best-effort skip -- silently preparing
+    an arm that cannot authenticate would reproduce the exact "reported
+    a wrong diagnosis instead of a clean failure" defect this fix
+    exists to close."""
+    source = Path(os.environ.get("HOME", "")) / ".claude" / ".credentials.json"
+    if not source.is_file():
+        raise ArmPreparationError(
+            f"no credentials file at {source} to provision into the "
+            "arm's isolated HOME -- dispatch under that HOME would fail "
+            "closed on 'Not logged in' before hooks or the skill "
+            "manipulation ever run, not run the arm at all")
+    dest_dir = home / ".claude"
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    dest = dest_dir / ".credentials.json"
+    shutil.copy2(source, dest)
+    dest.chmod(0o600)
+    return {"provisioned_from": str(source), "provisioned_to": str(dest)}
 
 
 def demonstrate_absence(skills_root: Path) -> dict:
@@ -202,8 +241,12 @@ def build_manifest(skills_root_on: Path, skill_name: str, model: str,
     off_home = Path(tempfile.mkdtemp(prefix="consumer-path-off-home-"))
     created_dirs = [on_home, off_home]
     try:
+        credentials_on = _provision_credentials(on_home)
+        credentials_off = _provision_credentials(off_home)
         on_arm = make_on_arm(on_home, skills_root_on)
         off_arm = make_off_arm(off_home)
+        on_arm["credentials"] = credentials_on
+        off_arm["credentials"] = credentials_off
         if on_arm["home"] == off_arm["home"]:
             raise ArmPreparationError(
                 "on/off arms received the same HOME -- isolation "
