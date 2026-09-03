@@ -1,0 +1,148 @@
+{
+  "pair_id": "05-notification-cadence",
+  "h1": {
+    "directive_bytes_parity": {
+      "on_bytes": null,
+      "off_bytes": null,
+      "note": "secondary environment-parity diagnostic only -- does NOT gate H1 (construct-validity gap found by PR #3172: a skill delivered via the runtime Skill tool never touches this file set, so identical bytes here is expected and uninformative, not a manipulation-check failure)"
+    },
+    "on_invocation": {
+      "session_log": "/tmp/consumer-path-on-home-js48d6j_/.tokenmaxxxer/work/study-companion-issue-40-product-discovery-guardrail-metrics-6e2c7a63.session.20260903T214102.3902260.log",
+      "mounted": [
+        "product-discovery-guardrail-metrics",
+        "work-in-english"
+      ],
+      "invoked": true,
+      "measured": true,
+      "mounted_but_not_invoked": false,
+      "invoked_but_not_mounted": false,
+      "reason": null
+    },
+    "off_invocation": {
+      "session_log": "/tmp/consumer-path-off-home-5h6eqzza/.tokenmaxxxer/work/study-companion-issue-41-product-discovery-guardrail-metrics-cdea5b11.session.20260903T214804.3953448.log",
+      "mounted": [
+        "product-discovery-guardrail-metrics",
+        "work-in-english"
+      ],
+      "invoked": false,
+      "measured": true,
+      "mounted_but_not_invoked": true,
+      "invoked_but_not_mounted": false,
+      "reason": null
+    },
+    "content_manipulation": {
+      "content_ok": true,
+      "reason": null,
+      "on_sha256": "a8b26f37b0f0a283830cafa000d58e75c06113cbefdc99f81cc4f3d903224d99",
+      "off_sha256": "a4dcf95d5ec48247f52c30f98ba916ea0672ff14cf5275cf975b3c15c1605df6",
+      "real_source_sha256": "a8b26f37b0f0a283830cafa000d58e75c06113cbefdc99f81cc4f3d903224d99",
+      "real_source_path": "/home/jwjung/skill-registry/skills/product-discovery-guardrail-metrics/SKILL.md",
+      "real_source_size_bytes": 5480,
+      "off_size_bytes": 157
+    },
+    "differs": true,
+    "reason": null
+  },
+  "h1_manipulation_ok": true,
+  "excluded_from_h2": false,
+  "exclusion_reason": null,
+  "h2": {
+    "scrub_replacement_counts": {
+      "skills-on": 12,
+      "skills-off": 6
+    },
+    "scored_on_scrubbed_text": {
+      "document_1_actual_arm": "skills-off",
+      "document_2_actual_arm": "skills-on",
+      "verdict": {
+        "document_1_score": 8,
+        "document_2_score": 8,
+        "verdict": "indistinguishable",
+        "reasoning": "Both reach the same clear kill/hold call, ground the job-difference argument in the one-pager's text, name concrete falsifiable success conditions, give near-term observable signals (opt-out rate, A/B or holdout on review quality, cannibalization of the close-of-session check), and tie explicit stop conditions to those signals rather than vague monitoring. Document 2 is slightly more precise on mechanism (citing the specific comprehension-gap correlation and Goodhart risk) and adds a cannibalization signal, but Document 1 is equally rigorous and equally open-ended, so the gap is not meaningful."
+      }
+    },
+    "scored_on_unscrubbed_text": {
+      "document_1_actual_arm": "skills-on",
+      "document_2_actual_arm": "skills-off",
+      "verdict": {
+        "document_1_score": 7,
+        "document_2_score": 8,
+        "verdict": "document_2",
+        "reasoning": "Both reach the same clear kill call and name similar falsifiable conditions and stop signals, but Document 2's success conditions (e.g., 'non-engagement is empirically the dominant reason,' testable via an incremental-review holdout) are sharper and more specifically falsifiable, and its signals (opt-out rate, A/B on review quality vs. occurrence, no-nudge control) are more concretely operationalized with clearer timing. Document 1 is slightly more repetitive in its 'What would make us stop' section, restating the kill verdict rather than adding a distinct new condition."
+      }
+    },
+    "scrubbed_scores_by_arm": {
+      "skills-off": 8,
+      "skills-on": 8
+    },
+    "unscrubbed_scores_by_arm": {
+      "skills-on": 7,
+      "skills-off": 8
+    },
+    "scrub_changed_score": true
+  },
+  "manifest": "/tmp/claude-1000/-home-jwjung-tokenmaxxxer/f1c8e2a2-3d9d-4d30-805e-b03e333c42ed/scratchpad/r007-05-notification-cadence/manifest.json",
+  "transport": "/tmp/claude-1000/-home-jwjung-tokenmaxxxer/f1c8e2a2-3d9d-4d30-805e-b03e333c42ed/scratchpad/r007-05-notification-cadence/transport.json",
+  "manipulation_check": {
+    "manipulation_held": true,
+    "pair_excluded": false,
+    "manifest": "/tmp/claude-1000/-home-jwjung-tokenmaxxxer/f1c8e2a2-3d9d-4d30-805e-b03e333c42ed/scratchpad/r007-05-notification-cadence/manifest.json",
+    "transport": "/tmp/claude-1000/-home-jwjung-tokenmaxxxer/f1c8e2a2-3d9d-4d30-805e-b03e333c42ed/scratchpad/r007-05-notification-cadence/transport.json",
+    "arms_checked": [
+      "on",
+      "off"
+    ]
+  },
+  "arm_results": {
+    "on": {
+      "arm": "on",
+      "issue": 40,
+      "status": "watched-to-completion",
+      "wall_clock_to_pr_open_s": 421.35194897837937,
+      "wall_clock_to_landed_s": null,
+      "landing_measurement_status": "not_measured -- this harness observes only the spawned session's own session-end event, which under the unmodified two-phase protocol is at most a phase-1 proposal PR opening, not a merge to main. wall_clock_to_pr_open_s is the honest name for what was actually timed.",
+      "dispatch_returncode": 0,
+      "watch_returncode": 0,
+      "watch_stderr": null
+    },
+    "off": {
+      "arm": "off",
+      "issue": 41,
+      "status": "watched-to-completion",
+      "wall_clock_to_pr_open_s": 226.3181172721088,
+      "wall_clock_to_landed_s": null,
+      "landing_measurement_status": "not_measured -- this harness observes only the spawned session's own session-end event, which under the unmodified two-phase protocol is at most a phase-1 proposal PR opening, not a merge to main. wall_clock_to_pr_open_s is the honest name for what was actually timed.",
+      "dispatch_returncode": 0,
+      "watch_returncode": 0,
+      "watch_stderr": null
+    }
+  },
+  "verification": {
+    "on": {
+      "verification_rounds": null,
+      "defects_found": null,
+      "measured": false,
+      "reason": "gh pr view 'issue-40/product-discovery-guardrail-metrics' failed: no pull requests found for branch \"issue-40/product-discovery-guardrail-metrics\""
+    },
+    "off": {
+      "verification_rounds": null,
+      "defects_found": null,
+      "measured": false,
+      "reason": "gh pr view 'issue-41/product-discovery-guardrail-metrics' failed: no pull requests found for branch \"issue-41/product-discovery-guardrail-metrics\""
+    }
+  },
+  "cost": {
+    "on": {
+      "cost_usd": null,
+      "measured": false,
+      "reason": "no runs/ledger.jsonl entries for issue=40 skill='product-discovery-guardrail-metrics'",
+      "skipped_malformed_lines": 0
+    },
+    "off": {
+      "cost_usd": null,
+      "measured": false,
+      "reason": "no runs/ledger.jsonl entries for issue=41 skill='product-discovery-guardrail-metrics'",
+      "skipped_malformed_lines": 0
+    }
+  }
+}

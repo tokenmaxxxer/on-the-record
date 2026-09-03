@@ -1,0 +1,54 @@
+{
+  "captured_before_dispatch": true,
+  "argv_deviation_from_template": "off arm's --skills value carries the skill-repo: source qualifier (issue #2579); on arm's does not. See module docstring -- proven necessary on this machine, not a stub or a claim of byte-identical argv.",
+  "arms": {
+    "on": {
+      "argv": [
+        "python3",
+        "spawn.py",
+        "--skills",
+        "experiment-trust",
+        "Read the one-pager under docs/issue-5, in particular the section near the end that proposes a small pilot to check whether the comprehension-gap feature actually works before we build more on top of it: roughly 15-20 students, comparing what they predict they'll score against what they actually score, over a fixed number of weeks, with a stated rule for when we'd stop. The team wants to run this pilot as written and treat its outcome as the answer. Before that happens: would this pilot's design actually let a bad result stop us, or is it built in a way that leans toward \"proceed\" regardless of what happens? Write up what you'd check and what you'd tell the team.",
+        "--issue",
+        "38",
+        "--model",
+        "sonnet",
+        "-C",
+        "/home/jwjung/study-companion"
+      ],
+      "env": {
+        "HOME": "/tmp/consumer-path-on-home-21bfzfy_",
+        "MUSTER_SKILL_REPO": "/tmp/consumer-path-on-skills-gm3gq0nc"
+      }
+    },
+    "off": {
+      "argv": [
+        "python3",
+        "spawn.py",
+        "--skills",
+        "skill-repo:experiment-trust",
+        "Read the one-pager under docs/issue-5, in particular the section near the end that proposes a small pilot to check whether the comprehension-gap feature actually works before we build more on top of it: roughly 15-20 students, comparing what they predict they'll score against what they actually score, over a fixed number of weeks, with a stated rule for when we'd stop. The team wants to run this pilot as written and treat its outcome as the answer. Before that happens: would this pilot's design actually let a bad result stop us, or is it built in a way that leans toward \"proceed\" regardless of what happens? Write up what you'd check and what you'd tell the team.",
+        "--issue",
+        "39",
+        "--model",
+        "sonnet",
+        "-C",
+        "/home/jwjung/study-companion"
+      ],
+      "env": {
+        "HOME": "/tmp/consumer-path-off-home-7sx4w07y",
+        "MUSTER_SKILL_REPO": "/tmp/consumer-path-off-skills-decoy-fdnxz6mu"
+      }
+    }
+  },
+  "credential_seeding": {
+    "on": {
+      "seeded": true,
+      "source": "/home/jwjung/.claude/.credentials.json"
+    },
+    "off": {
+      "seeded": true,
+      "source": "/home/jwjung/.claude/.credentials.json"
+    }
+  }
+}

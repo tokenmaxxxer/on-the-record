@@ -1,0 +1,80 @@
+{
+  "arms": [
+    {
+      "arm": "on",
+      "decoy": null,
+      "home": "/tmp/consumer-path-on-home-21bfzfy_",
+      "skill_files": [
+        {
+          "path": "experiment-trust/SKILL.md",
+          "sha256": "cc69c80ce5e787ef43a5189513288145353674642d5788b5a805f6f5bd77030f",
+          "size_bytes": 10418
+        },
+        {
+          "path": "experiment-trust/references/rules.md",
+          "sha256": "816da051ba3fd79c754a3cefa6659c0d97554ee4cd9f699de521cb284e748f2a",
+          "size_bytes": 2357
+        },
+        {
+          "path": "work-in-english/SKILL.md",
+          "sha256": "f2d1ae8c75c39badcfed996a60e3c017a9b24a5c5e78b7249a51b104aaa1679a",
+          "size_bytes": 4632
+        }
+      ],
+      "skills_root": "/tmp/consumer-path-on-skills-gm3gq0nc"
+    },
+    {
+      "arm": "off",
+      "decoy": {
+        "has_body_guidance": false,
+        "skill_name": "experiment-trust",
+        "source_skill_md": "/home/jwjung/skill-registry/skills/experiment-trust/SKILL.md"
+      },
+      "home": "/tmp/consumer-path-off-home-7sx4w07y",
+      "skill_files": [
+        {
+          "path": "experiment-trust/SKILL.md",
+          "sha256": "24c0343787c48b0ceaec796212d8c91bc4659e0512b65790ef8349b4d02c7de3",
+          "size_bytes": 138
+        },
+        {
+          "path": "experiment-trust/references/rules.md",
+          "sha256": "f1a77dabd57551da3b5c651f35e07ddf1163cab1c7a3de5f25f0f7e4971a97a4",
+          "size_bytes": 90
+        },
+        {
+          "path": "work-in-english/SKILL.md",
+          "sha256": "f2d1ae8c75c39badcfed996a60e3c017a9b24a5c5e78b7249a51b104aaa1679a",
+          "size_bytes": 4632
+        }
+      ],
+      "skills_root": "/tmp/consumer-path-off-skills-decoy-fdnxz6mu"
+    }
+  ],
+  "dispatch": {
+    "argv_identical_across_arms": true,
+    "argv_template": [
+      "python3",
+      "spawn.py",
+      "--skills",
+      "experiment-trust",
+      "<task text, held constant across both arms>",
+      "--issue",
+      "<issue-created-per-arm>",
+      "--model",
+      "sonnet",
+      "-C",
+      "<sandbox-repo>"
+    ],
+    "env_keys_that_differ_by_arm": [
+      "HOME",
+      "MUSTER_SKILL_REPO"
+    ],
+    "note": "spawn.py with an orchestrator -- not a bare `claude -p` (the #3041/#3053 shortcut this issue's floor condition invalidated for this requirement)"
+  },
+  "generated_at": "2026-09-03T13:05:20.959877+00:00",
+  "issue": 3183,
+  "operator": "jwjung",
+  "skill_name": "experiment-trust",
+  "skills_root_env_var": "MUSTER_SKILL_REPO"
+}

@@ -1,0 +1,152 @@
+{
+  "pair_id": "04-pilot-trust",
+  "h1": {
+    "directive_bytes_parity": {
+      "on_bytes": 13026,
+      "off_bytes": 13026,
+      "note": "secondary environment-parity diagnostic only -- does NOT gate H1 (construct-validity gap found by PR #3172: a skill delivered via the runtime Skill tool never touches this file set, so identical bytes here is expected and uninformative, not a manipulation-check failure)"
+    },
+    "on_invocation": {
+      "session_log": "/tmp/consumer-path-on-home-21bfzfy_/.tokenmaxxxer/work/study-companion-issue-38-experiment-trust-78910eea.session.20260903T220529.4073322.log",
+      "mounted": [
+        "experiment-trust",
+        "work-in-english"
+      ],
+      "invoked": true,
+      "measured": true,
+      "mounted_but_not_invoked": false,
+      "invoked_but_not_mounted": false,
+      "reason": null
+    },
+    "off_invocation": {
+      "session_log": "/tmp/consumer-path-off-home-7sx4w07y/.tokenmaxxxer/work/study-companion-issue-39-experiment-trust-3cf55564.session.20260903T221243.4129731.log",
+      "mounted": [
+        "experiment-trust",
+        "work-in-english"
+      ],
+      "invoked": false,
+      "measured": true,
+      "mounted_but_not_invoked": true,
+      "invoked_but_not_mounted": false,
+      "reason": null
+    },
+    "content_manipulation": {
+      "content_ok": true,
+      "reason": null,
+      "on_sha256": "cc69c80ce5e787ef43a5189513288145353674642d5788b5a805f6f5bd77030f",
+      "off_sha256": "24c0343787c48b0ceaec796212d8c91bc4659e0512b65790ef8349b4d02c7de3",
+      "real_source_sha256": "cc69c80ce5e787ef43a5189513288145353674642d5788b5a805f6f5bd77030f",
+      "real_source_path": "/home/jwjung/skill-registry/skills/experiment-trust/SKILL.md",
+      "real_source_size_bytes": 10418,
+      "off_size_bytes": 138
+    },
+    "differs": true,
+    "reason": null
+  },
+  "h1_manipulation_ok": true,
+  "excluded_from_h2": false,
+  "exclusion_reason": null,
+  "h2": {
+    "scrub_replacement_counts": {
+      "skills-on": 10,
+      "skills-off": 12
+    },
+    "scored_on_scrubbed_text": {
+      "document_1_actual_arm": "skills-off",
+      "document_2_actual_arm": "skills-on",
+      "verdict": {
+        "document_1_score": 8,
+        "document_2_score": 9,
+        "verdict": "document_2",
+        "reasoning": "Both check sample power, threshold structure, name the underpowered-plus-favorable-threshold failure mode, and give concrete fixes, but Document 2 more explicitly names the asymmetric operationalization (only 'stop' has a crisp statistic while 'proceed/inconclusive' does not) as the core mechanism producing a de facto proceed default, and adds a distinct framing-mismatch check distinguishing the actual forced-choice instrument from the predicted-score-vs-actual description in the task, directly hitting the rubric's 'adjacent things it might measure instead' criterion. Document 1's new findings (cold-guess CI, non-binding n=36 trigger) are solid but slightly less central to the core stop-vs-proceed structural question than Document 2's three-mechanism synthesis."
+      }
+    },
+    "scored_on_unscrubbed_text": {
+      "document_1_actual_arm": "skills-on",
+      "document_2_actual_arm": "skills-off",
+      "verdict": {
+        "document_1_score": 9,
+        "document_2_score": 9,
+        "verdict": "indistinguishable",
+        "reasoning": "Both independently recompute power at n=18 and n=36 (matching figures), correctly find the stop branch is real but only ~26-42% powered so 'proceed' is the structural default, and both flag the framing mismatch between the task's stated instrument and the one-pager's actual forced-choice hit-rate test plus concrete fixes (binding trigger, cutoff, propagation). Document 2 adds a sharper new quantification (Clopper-Pearson CI on the n=10 calibration group showing its noise can shift the primary threshold), giving it slightly more novel rigor, but Document 1's three-mechanism synthesis (power/asymmetric operationalization/ungated prose) is equally complete and well-argued, so the two are effectively tied in rubric coverage."
+      }
+    },
+    "scrubbed_scores_by_arm": {
+      "skills-off": 8,
+      "skills-on": 9
+    },
+    "unscrubbed_scores_by_arm": {
+      "skills-on": 9,
+      "skills-off": 9
+    },
+    "scrub_changed_score": true
+  },
+  "workspace_location_notes": {
+    "on": "located study-companion-issue-38-experiment-trust-78910eea (computed name was study-companion-issue-38-experiment-trust)",
+    "off": "located study-companion-issue-39-experiment-trust-3cf55564 (computed name was study-companion-issue-39-experiment-trust)"
+  },
+  "manifest": "/tmp/claude-1000/-home-jwjung-tokenmaxxxer/f1c8e2a2-3d9d-4d30-805e-b03e333c42ed/scratchpad/r007-04-pilot-trust-retry/manifest.json",
+  "transport": "/tmp/claude-1000/-home-jwjung-tokenmaxxxer/f1c8e2a2-3d9d-4d30-805e-b03e333c42ed/scratchpad/r007-04-pilot-trust-retry/transport.json",
+  "manipulation_check": {
+    "manipulation_held": true,
+    "pair_excluded": false,
+    "manifest": "/tmp/claude-1000/-home-jwjung-tokenmaxxxer/f1c8e2a2-3d9d-4d30-805e-b03e333c42ed/scratchpad/r007-04-pilot-trust-retry/manifest.json",
+    "transport": "/tmp/claude-1000/-home-jwjung-tokenmaxxxer/f1c8e2a2-3d9d-4d30-805e-b03e333c42ed/scratchpad/r007-04-pilot-trust-retry/transport.json",
+    "arms_checked": [
+      "on",
+      "off"
+    ]
+  },
+  "arm_results": {
+    "on": {
+      "arm": "on",
+      "issue": 38,
+      "status": "watched-to-completion",
+      "wall_clock_to_pr_open_s": 432.13789679668844,
+      "wall_clock_to_landed_s": null,
+      "landing_measurement_status": "not_measured -- this harness observes only the spawned session's own session-end event, which under the unmodified two-phase protocol is at most a phase-1 proposal PR opening, not a merge to main. wall_clock_to_pr_open_s is the honest name for what was actually timed.",
+      "dispatch_returncode": 0,
+      "watch_returncode": 0,
+      "watch_stderr": null
+    },
+    "off": {
+      "arm": "off",
+      "issue": 39,
+      "status": "watched-to-completion",
+      "wall_clock_to_pr_open_s": 371.4392394144088,
+      "wall_clock_to_landed_s": null,
+      "landing_measurement_status": "not_measured -- this harness observes only the spawned session's own session-end event, which under the unmodified two-phase protocol is at most a phase-1 proposal PR opening, not a merge to main. wall_clock_to_pr_open_s is the honest name for what was actually timed.",
+      "dispatch_returncode": 0,
+      "watch_returncode": 0,
+      "watch_stderr": null
+    }
+  },
+  "verification": {
+    "on": {
+      "verification_rounds": null,
+      "defects_found": null,
+      "measured": false,
+      "reason": "gh pr view 'issue-38/experiment-trust' failed: no pull requests found for branch \"issue-38/experiment-trust\""
+    },
+    "off": {
+      "verification_rounds": null,
+      "defects_found": null,
+      "measured": false,
+      "reason": "gh pr view 'issue-39/experiment-trust' failed: no pull requests found for branch \"issue-39/experiment-trust\""
+    }
+  },
+  "cost": {
+    "on": {
+      "cost_usd": null,
+      "measured": false,
+      "reason": "no runs/ledger.jsonl entries for issue=38 skill='experiment-trust'",
+      "skipped_malformed_lines": 0
+    },
+    "off": {
+      "cost_usd": null,
+      "measured": false,
+      "reason": "no runs/ledger.jsonl entries for issue=39 skill='experiment-trust'",
+      "skipped_malformed_lines": 0
+    }
+  }
+}

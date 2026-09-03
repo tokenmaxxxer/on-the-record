@@ -1,0 +1,90 @@
+{
+  "arms": [
+    {
+      "arm": "on",
+      "decoy": null,
+      "home": "/tmp/consumer-path-on-home-vlxz4kqb",
+      "skill_files": [
+        {
+          "path": "code-architecture/SKILL.md",
+          "sha256": "8349d008c5a680fc63b24882caee4c30b3779620173cdb05f4f813ecaae19164",
+          "size_bytes": 4966
+        },
+        {
+          "path": "code-architecture/references/methodology-lineage.md",
+          "sha256": "65d352e60926f265ce1fd30b364c51c7eca114682dd0f0356309ba9e85fe0895",
+          "size_bytes": 18444
+        },
+        {
+          "path": "code-architecture/references/rules.md",
+          "sha256": "1de08b77fd55893c48b105f2dc315a8fe0a3adcfad859f8561d3cfa836d8d937",
+          "size_bytes": 20292
+        },
+        {
+          "path": "work-in-english/SKILL.md",
+          "sha256": "f2d1ae8c75c39badcfed996a60e3c017a9b24a5c5e78b7249a51b104aaa1679a",
+          "size_bytes": 4632
+        }
+      ],
+      "skills_root": "/tmp/consumer-path-on-skills-291t9nu8"
+    },
+    {
+      "arm": "off",
+      "decoy": {
+        "has_body_guidance": false,
+        "skill_name": "code-architecture",
+        "source_skill_md": "/home/jwjung/skill-registry/skills/code-architecture/SKILL.md"
+      },
+      "home": "/tmp/consumer-path-off-home-msvcatp5",
+      "skill_files": [
+        {
+          "path": "code-architecture/SKILL.md",
+          "sha256": "135dd4d62672cac08b0f5bf9d9c0cd359531aed05b960bac5a1a995ddec5107a",
+          "size_bytes": 139
+        },
+        {
+          "path": "code-architecture/references/methodology-lineage.md",
+          "sha256": "f1a77dabd57551da3b5c651f35e07ddf1163cab1c7a3de5f25f0f7e4971a97a4",
+          "size_bytes": 90
+        },
+        {
+          "path": "code-architecture/references/rules.md",
+          "sha256": "f1a77dabd57551da3b5c651f35e07ddf1163cab1c7a3de5f25f0f7e4971a97a4",
+          "size_bytes": 90
+        },
+        {
+          "path": "work-in-english/SKILL.md",
+          "sha256": "f2d1ae8c75c39badcfed996a60e3c017a9b24a5c5e78b7249a51b104aaa1679a",
+          "size_bytes": 4632
+        }
+      ],
+      "skills_root": "/tmp/consumer-path-off-skills-decoy-z26ve328"
+    }
+  ],
+  "dispatch": {
+    "argv_identical_across_arms": true,
+    "argv_template": [
+      "python3",
+      "spawn.py",
+      "--skills",
+      "code-architecture",
+      "<task text, held constant across both arms>",
+      "--issue",
+      "<issue-created-per-arm>",
+      "--model",
+      "sonnet",
+      "-C",
+      "<sandbox-repo>"
+    ],
+    "env_keys_that_differ_by_arm": [
+      "HOME",
+      "MUSTER_SKILL_REPO"
+    ],
+    "note": "spawn.py with an orchestrator -- not a bare `claude -p` (the #3041/#3053 shortcut this issue's floor condition invalidated for this requirement)"
+  },
+  "generated_at": "2026-09-03T13:22:43.014340+00:00",
+  "issue": 3183,
+  "operator": "jwjung",
+  "skill_name": "code-architecture",
+  "skills_root_env_var": "MUSTER_SKILL_REPO"
+}

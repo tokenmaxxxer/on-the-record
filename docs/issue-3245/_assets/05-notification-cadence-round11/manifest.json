@@ -1,0 +1,70 @@
+{
+  "arms": [
+    {
+      "arm": "on",
+      "decoy": null,
+      "home": "/tmp/consumer-path-on-home-js48d6j_",
+      "skill_files": [
+        {
+          "path": "product-discovery-guardrail-metrics/SKILL.md",
+          "sha256": "a8b26f37b0f0a283830cafa000d58e75c06113cbefdc99f81cc4f3d903224d99",
+          "size_bytes": 5480
+        },
+        {
+          "path": "work-in-english/SKILL.md",
+          "sha256": "f2d1ae8c75c39badcfed996a60e3c017a9b24a5c5e78b7249a51b104aaa1679a",
+          "size_bytes": 4632
+        }
+      ],
+      "skills_root": "/tmp/consumer-path-on-skills-qw6z8mt2"
+    },
+    {
+      "arm": "off",
+      "decoy": {
+        "has_body_guidance": false,
+        "skill_name": "product-discovery-guardrail-metrics",
+        "source_skill_md": "/home/jwjung/skill-registry/skills/product-discovery-guardrail-metrics/SKILL.md"
+      },
+      "home": "/tmp/consumer-path-off-home-5h6eqzza",
+      "skill_files": [
+        {
+          "path": "product-discovery-guardrail-metrics/SKILL.md",
+          "sha256": "a4dcf95d5ec48247f52c30f98ba916ea0672ff14cf5275cf975b3c15c1605df6",
+          "size_bytes": 157
+        },
+        {
+          "path": "work-in-english/SKILL.md",
+          "sha256": "f2d1ae8c75c39badcfed996a60e3c017a9b24a5c5e78b7249a51b104aaa1679a",
+          "size_bytes": 4632
+        }
+      ],
+      "skills_root": "/tmp/consumer-path-off-skills-decoy-_6an9gjt"
+    }
+  ],
+  "dispatch": {
+    "argv_identical_across_arms": true,
+    "argv_template": [
+      "python3",
+      "spawn.py",
+      "--skills",
+      "product-discovery-guardrail-metrics",
+      "<task text, held constant across both arms>",
+      "--issue",
+      "<issue-created-per-arm>",
+      "--model",
+      "sonnet",
+      "-C",
+      "<sandbox-repo>"
+    ],
+    "env_keys_that_differ_by_arm": [
+      "HOME",
+      "MUSTER_SKILL_REPO"
+    ],
+    "note": "spawn.py with an orchestrator -- not a bare `claude -p` (the #3041/#3053 shortcut this issue's floor condition invalidated for this requirement)"
+  },
+  "generated_at": "2026-09-03T12:40:53.278971+00:00",
+  "issue": 3183,
+  "operator": "jwjung",
+  "skill_name": "product-discovery-guardrail-metrics",
+  "skills_root_env_var": "MUSTER_SKILL_REPO"
+}

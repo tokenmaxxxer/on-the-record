@@ -1,0 +1,54 @@
+{
+  "captured_before_dispatch": true,
+  "argv_deviation_from_template": "off arm's --skills value carries the skill-repo: source qualifier (issue #2579); on arm's does not. See module docstring -- proven necessary on this machine, not a stub or a claim of byte-identical argv.",
+  "arms": {
+    "on": {
+      "argv": [
+        "python3",
+        "spawn.py",
+        "--skills",
+        "code-architecture",
+        "We need a new spaced-repetition review scheduler: it has to read a student's past answers, decide which flashcards are due today, and expose that list to both the mobile app and the web app. Check the repo first: as of now it holds no application code, only the product-discovery documents under docs/issue-1 and docs/issue-5 (a comprehension-gap job we've already validated and written a one-pager for). This scheduler is a separate piece of work from that job, so treat it as a green-field design with no existing code conventions to match, and say so if that's what you find. This will span several files or modules. Before writing the code, write up how you'd structure it, and note briefly whether it should relate to the comprehension-gap job at all.",
+        "--issue",
+        "36",
+        "--model",
+        "sonnet",
+        "-C",
+        "/home/jwjung/study-companion"
+      ],
+      "env": {
+        "HOME": "/tmp/consumer-path-on-home-vlxz4kqb",
+        "MUSTER_SKILL_REPO": "/tmp/consumer-path-on-skills-291t9nu8"
+      }
+    },
+    "off": {
+      "argv": [
+        "python3",
+        "spawn.py",
+        "--skills",
+        "skill-repo:code-architecture",
+        "We need a new spaced-repetition review scheduler: it has to read a student's past answers, decide which flashcards are due today, and expose that list to both the mobile app and the web app. Check the repo first: as of now it holds no application code, only the product-discovery documents under docs/issue-1 and docs/issue-5 (a comprehension-gap job we've already validated and written a one-pager for). This scheduler is a separate piece of work from that job, so treat it as a green-field design with no existing code conventions to match, and say so if that's what you find. This will span several files or modules. Before writing the code, write up how you'd structure it, and note briefly whether it should relate to the comprehension-gap job at all.",
+        "--issue",
+        "37",
+        "--model",
+        "sonnet",
+        "-C",
+        "/home/jwjung/study-companion"
+      ],
+      "env": {
+        "HOME": "/tmp/consumer-path-off-home-msvcatp5",
+        "MUSTER_SKILL_REPO": "/tmp/consumer-path-off-skills-decoy-z26ve328"
+      }
+    }
+  },
+  "credential_seeding": {
+    "on": {
+      "seeded": true,
+      "source": "/home/jwjung/.claude/.credentials.json"
+    },
+    "off": {
+      "seeded": true,
+      "source": "/home/jwjung/.claude/.credentials.json"
+    }
+  }
+}

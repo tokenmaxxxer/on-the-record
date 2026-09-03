@@ -1,0 +1,152 @@
+{
+  "pair_id": "03-review-scheduler",
+  "h1": {
+    "directive_bytes_parity": {
+      "on_bytes": 13026,
+      "off_bytes": 13026,
+      "note": "secondary environment-parity diagnostic only -- does NOT gate H1 (construct-validity gap found by PR #3172: a skill delivered via the runtime Skill tool never touches this file set, so identical bytes here is expected and uninformative, not a manipulation-check failure)"
+    },
+    "on_invocation": {
+      "session_log": "/tmp/consumer-path-on-home-vlxz4kqb/.tokenmaxxxer/work/study-companion-issue-36-code-architecture-1f613ce4.session.20260903T222252.4212.log",
+      "mounted": [
+        "code-architecture",
+        "work-in-english"
+      ],
+      "invoked": true,
+      "measured": true,
+      "mounted_but_not_invoked": false,
+      "invoked_but_not_mounted": false,
+      "reason": null
+    },
+    "off_invocation": {
+      "session_log": "/tmp/consumer-path-off-home-msvcatp5/.tokenmaxxxer/work/study-companion-issue-37-code-architecture-d38fbffe.session.20260903T223037.21291.log",
+      "mounted": [
+        "code-architecture",
+        "work-in-english"
+      ],
+      "invoked": false,
+      "measured": true,
+      "mounted_but_not_invoked": true,
+      "invoked_but_not_mounted": false,
+      "reason": null
+    },
+    "content_manipulation": {
+      "content_ok": true,
+      "reason": null,
+      "on_sha256": "8349d008c5a680fc63b24882caee4c30b3779620173cdb05f4f813ecaae19164",
+      "off_sha256": "135dd4d62672cac08b0f5bf9d9c0cd359531aed05b960bac5a1a995ddec5107a",
+      "real_source_sha256": "8349d008c5a680fc63b24882caee4c30b3779620173cdb05f4f813ecaae19164",
+      "real_source_path": "/home/jwjung/skill-registry/skills/code-architecture/SKILL.md",
+      "real_source_size_bytes": 4966,
+      "off_size_bytes": 139
+    },
+    "differs": true,
+    "reason": null
+  },
+  "h1_manipulation_ok": true,
+  "excluded_from_h2": false,
+  "exclusion_reason": null,
+  "h2": {
+    "scrub_replacement_counts": {
+      "skills-on": 12,
+      "skills-off": 7
+    },
+    "scored_on_scrubbed_text": {
+      "document_1_actual_arm": "skills-off",
+      "document_2_actual_arm": "skills-on",
+      "verdict": {
+        "document_1_score": 8,
+        "document_2_score": 6,
+        "verdict": "document_1",
+        "reasoning": "Both correctly identify the domain-logic nature, name mobile/web callers, flag the anti-pattern of per-client duplication, and treat the comprehension-gap job as separate. Document 1 explicitly calibrates scope (flat 3-module layout, defers optimization, avoids over-architecting) while Document 2 imposes a four-layer domain/application/infrastructure/interface split with a full classification-gate ceremony for what is fundamentally one algorithm and two Protocol interfaces, which is disproportionate to the task size the rubric explicitly penalizes. Document 1's rejected-alternative section is also a more direct, concrete anti-pattern discussion than Document 2's more abstract gate-based justification."
+      }
+    },
+    "scored_on_unscrubbed_text": {
+      "document_1_actual_arm": "skills-off",
+      "document_2_actual_arm": "skills-on",
+      "verdict": {
+        "document_1_score": 7,
+        "document_2_score": 8,
+        "verdict": "document_2",
+        "reasoning": "Both correctly identify this as domain/service logic, propose a concrete 3-4 file module boundary, name mobile/web callers explicitly with a shared function boundary, flag the anti-pattern of per-client duplicated scheduling logic, and address the comprehension-gap relation appropriately. Document 2 goes further by explicitly justifying its structure's size against a classification rubric (rejecting Library/Event-Driven, landing on Domain-Rich App) and explaining why it avoided over-engineering (rule-of-three justification for Protocol interfaces), giving clearer calibration reasoning than Document 1's simpler but less-justified 3-file layout, though Document 2's four-layer split is arguably slightly heavier than the task strictly requires."
+      }
+    },
+    "scrubbed_scores_by_arm": {
+      "skills-off": 8,
+      "skills-on": 6
+    },
+    "unscrubbed_scores_by_arm": {
+      "skills-off": 7,
+      "skills-on": 8
+    },
+    "scrub_changed_score": true
+  },
+  "workspace_location_notes": {
+    "on": "located study-companion-issue-36-code-architecture-1f613ce4 (computed name was study-companion-issue-36-code-architecture)",
+    "off": "located study-companion-issue-37-code-architecture-d38fbffe (computed name was study-companion-issue-37-code-architecture)"
+  },
+  "manifest": "/tmp/claude-1000/-home-jwjung-tokenmaxxxer/f1c8e2a2-3d9d-4d30-805e-b03e333c42ed/scratchpad/r007-03-clean/manifest.json",
+  "transport": "/tmp/claude-1000/-home-jwjung-tokenmaxxxer/f1c8e2a2-3d9d-4d30-805e-b03e333c42ed/scratchpad/r007-03-clean/transport.json",
+  "manipulation_check": {
+    "manipulation_held": true,
+    "pair_excluded": false,
+    "manifest": "/tmp/claude-1000/-home-jwjung-tokenmaxxxer/f1c8e2a2-3d9d-4d30-805e-b03e333c42ed/scratchpad/r007-03-clean/manifest.json",
+    "transport": "/tmp/claude-1000/-home-jwjung-tokenmaxxxer/f1c8e2a2-3d9d-4d30-805e-b03e333c42ed/scratchpad/r007-03-clean/transport.json",
+    "arms_checked": [
+      "on",
+      "off"
+    ]
+  },
+  "arm_results": {
+    "on": {
+      "arm": "on",
+      "issue": 36,
+      "status": "watched-to-completion",
+      "wall_clock_to_pr_open_s": 462.78704776987433,
+      "wall_clock_to_landed_s": null,
+      "landing_measurement_status": "not_measured -- this harness observes only the spawned session's own session-end event, which under the unmodified two-phase protocol is at most a phase-1 proposal PR opening, not a merge to main. wall_clock_to_pr_open_s is the honest name for what was actually timed.",
+      "dispatch_returncode": 0,
+      "watch_returncode": 0,
+      "watch_stderr": null
+    },
+    "off": {
+      "arm": "off",
+      "issue": 37,
+      "status": "watched-to-completion",
+      "wall_clock_to_pr_open_s": 388.20974828861654,
+      "wall_clock_to_landed_s": null,
+      "landing_measurement_status": "not_measured -- this harness observes only the spawned session's own session-end event, which under the unmodified two-phase protocol is at most a phase-1 proposal PR opening, not a merge to main. wall_clock_to_pr_open_s is the honest name for what was actually timed.",
+      "dispatch_returncode": 0,
+      "watch_returncode": 0,
+      "watch_stderr": null
+    }
+  },
+  "verification": {
+    "on": {
+      "verification_rounds": null,
+      "defects_found": null,
+      "measured": false,
+      "reason": "gh pr view 'issue-36/code-architecture' failed: no pull requests found for branch \"issue-36/code-architecture\""
+    },
+    "off": {
+      "verification_rounds": null,
+      "defects_found": null,
+      "measured": false,
+      "reason": "gh pr view 'issue-37/code-architecture' failed: no pull requests found for branch \"issue-37/code-architecture\""
+    }
+  },
+  "cost": {
+    "on": {
+      "cost_usd": null,
+      "measured": false,
+      "reason": "no runs/ledger.jsonl entries for issue=36 skill='code-architecture'",
+      "skipped_malformed_lines": 0
+    },
+    "off": {
+      "cost_usd": null,
+      "measured": false,
+      "reason": "no runs/ledger.jsonl entries for issue=37 skill='code-architecture'",
+      "skipped_malformed_lines": 0
+    }
+  }
+}
